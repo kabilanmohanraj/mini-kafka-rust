@@ -13,14 +13,22 @@ fn handle_stream(mut stream: TcpStream) {
     stream.read(&mut buf).unwrap();
 
     // decode request from the client
-    let response = decode_kafka_request(&buf);
+    let request = decode_kafka_request(&buf);
 
-    // // compute response
-    // let response = KafkaMessage{
-    //     size: 0,
-    //     header: Header::Response(ResponseHeader::new(7)),
-    //     body: KafkaPayload { payload: Box::new(ApiVersionsRequest{}) }
-    // };
+    // extract correlation ID from the request header
+    let correlation_id = match &request.header {
+        Header::Request(req_header) => req_header.correlation_id,
+        _ => {
+            panic!("Expected RequestHeader in the KafkaMessage");
+        }
+    };
+
+    // compute response
+    let response = KafkaMessage{
+        size: 0,
+        header: Header::Response(ResponseHeader::new(correlation_id)),
+        body: KafkaPayload { payload: Box::new(ApiVersionsRequest{}) }
+    };
 
     // write response
     stream.write(&response.encode()).unwrap();
