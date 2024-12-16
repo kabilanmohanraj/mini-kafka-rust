@@ -1,21 +1,26 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 mod common;
+mod broker;
 
 use std::{io::{Read, Write}, net::{TcpListener, TcpStream}};
 use common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, Header, KafkaMessage, KafkaPayload, RequestHeader, ResponseHeader};
+use broker::utils::decode_kafka_request;
 
 fn handle_stream(mut stream: TcpStream) {
     // read request
     let mut buf = [0; 1024];
     stream.read(&mut buf).unwrap();
 
-    // compute response
-    let response = KafkaMessage{
-        size: 0,
-        header: Header::Response(ResponseHeader::new(7)),
-        body: KafkaPayload { payload: Box::new(ApiVersionsRequest{}) }
-    };
+    // decode request from the client
+    let response = decode_kafka_request(&buf);
+
+    // // compute response
+    // let response = KafkaMessage{
+    //     size: 0,
+    //     header: Header::Response(ResponseHeader::new(7)),
+    //     body: KafkaPayload { payload: Box::new(ApiVersionsRequest{}) }
+    // };
 
     // write response
     stream.write(&response.encode()).unwrap();
