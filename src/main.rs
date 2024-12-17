@@ -31,15 +31,17 @@ fn handle_stream(mut stream: TcpStream) {
         })).encode();
 
     let size = ( header.len() + body.len() ) as i32;
+    println!("{}", size);
+
     // compute response
     let response = KafkaMessage{
         size: size,
         header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
         body: KafkaBody::Response(
-                Box::new(ApiVersionsResponse{
-                    error_code: 35,
-                    api_versions: vec![]
-                }))
+                            Box::new(ApiVersionsResponse{
+                                error_code: 0,
+                                api_versions: vec![ApiKey{api_key: 18, min_version: 0, max_version: 4}]
+                            }))
     };
 
 

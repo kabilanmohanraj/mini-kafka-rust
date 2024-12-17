@@ -4,7 +4,7 @@ pub fn decode_kafka_request(bytes: &[u8]) -> KafkaMessage {
     
     let temp: &[u8; 4] = &bytes[0..4].try_into().expect("Could not get message size from buffer...\n");
     let message_size = i32::from_be_bytes(*temp);
-    println!("{}", message_size);
+    // println!("{}", message_size);
 
     let header = RequestHeader::decode(bytes);
 

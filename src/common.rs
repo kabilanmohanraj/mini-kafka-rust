@@ -48,15 +48,15 @@ impl RequestHeader {
     pub fn decode(bytes: &[u8]) -> RequestHeader {
         let temp: &[u8; 2] = &bytes[4..6].try_into().expect("Could not get request API key from buffer...\n");
         let api_key = i16::from_be_bytes(*temp);
-        println!("{}", api_key);
+        // println!("{}", api_key);
 
         let temp: &[u8; 2] = &bytes[6..8].try_into().expect("Could not get request API key from buffer...\n");
         let api_version = i16::from_be_bytes(*temp);
-        println!("{}", api_version);
+        // println!("{}", api_version);
 
         let temp: &[u8; 4] = &bytes[8..12].try_into().expect("Could not get request API key from buffer...\n");
         let correlation_id = i32::from_be_bytes(*temp);
-        println!("{}", correlation_id);
+        // println!("{}", correlation_id);
 
         RequestHeader {
             api_key,
