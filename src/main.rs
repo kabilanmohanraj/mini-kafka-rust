@@ -27,7 +27,11 @@ fn handle_stream(mut stream: TcpStream) {
     let response = KafkaMessage{
         size: 0,
         header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
-        body: KafkaBody::Response(Box::new(ApiVersionsRequest{}))
+        body: KafkaBody::Response(
+            Box::new(ApiVersionsResponse{
+                error_code: 35,
+                api_versions: vec![]
+            }))
     };
 
     // write response
