@@ -4,7 +4,7 @@ mod common;
 mod broker;
 
 use std::{io::{Read, Write}, net::{TcpListener, TcpStream}};
-use common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, KafkaHeader, KafkaMessage, KafkaBody, RequestHeader, ResponseHeader};
+use common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, Encodable, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader, ResponseHeader};
 use broker::utils::decode_kafka_request;
 
 fn handle_stream(mut stream: TcpStream) {
@@ -23,16 +23,25 @@ fn handle_stream(mut stream: TcpStream) {
         }
     };
 
+    let header = KafkaHeader::Response(ResponseHeader::new(correlation_id)).encode();
+    let body = KafkaBody::Response(
+        Box::new(ApiVersionsResponse{
+            error_code: 35,
+            api_versions: vec![]
+        })).encode();
+
+    let size = ( header.len() + body.len() ) as i32;
     // compute response
     let response = KafkaMessage{
-        size: 0,
+        size: size,
         header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
         body: KafkaBody::Response(
-            Box::new(ApiVersionsResponse{
-                error_code: 35,
-                api_versions: vec![]
-            }))
+                Box::new(ApiVersionsResponse{
+                    error_code: 35,
+                    api_versions: vec![]
+                }))
     };
+
 
     // write response
     stream.write(&response.encode()).unwrap();
