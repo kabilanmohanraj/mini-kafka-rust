@@ -54,7 +54,7 @@ impl RequestHeader {
         let api_version = i16::from_be_bytes(*temp);
         // println!("{}", api_version);
 
-        let temp: &[u8; 4] = &bytes[8..12].try_into().expect("Could not get request API key from buffer...\n");
+        let temp: &[u8; 4] = &bytes[8..12].try_into().expect("Could not get correlation id from buffer...\n");
         let correlation_id = i32::from_be_bytes(*temp);
         // println!("{}", correlation_id);
 

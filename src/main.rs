@@ -27,7 +27,7 @@ fn handle_stream(mut stream: TcpStream) {
     let body = KafkaBody::Response(
         Box::new(ApiVersionsResponse{
             error_code: 35,
-            api_versions: vec![]
+            api_versions: vec![ApiKey{api_key: 18, min_version: 0, max_version: 4}]
         })).encode();
 
     let size = ( header.len() + body.len() ) as i32;
