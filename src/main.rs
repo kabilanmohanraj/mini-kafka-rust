@@ -4,7 +4,7 @@ mod common;
 mod broker;
 
 use std::{io::{Read, Write}, net::{TcpListener, TcpStream}};
-use common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, Header, KafkaMessage, KafkaPayload, RequestHeader, ResponseHeader};
+use common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, KafkaHeader, KafkaMessage, KafkaBody, RequestHeader, ResponseHeader};
 use broker::utils::decode_kafka_request;
 
 fn handle_stream(mut stream: TcpStream) {
@@ -17,7 +17,7 @@ fn handle_stream(mut stream: TcpStream) {
 
     // extract correlation ID from the request header
     let correlation_id = match &request.header {
-        Header::Request(req_header) => req_header.correlation_id,
+        KafkaHeader::Request(req_header) => req_header.correlation_id,
         _ => {
             panic!("Expected RequestHeader in the KafkaMessage");
         }
@@ -26,8 +26,8 @@ fn handle_stream(mut stream: TcpStream) {
     // compute response
     let response = KafkaMessage{
         size: 0,
-        header: Header::Response(ResponseHeader::new(correlation_id)),
-        body: KafkaPayload { payload: Box::new(ApiVersionsRequest{}) }
+        header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
+        body: KafkaBody::Response(Box::new(ApiVersionsRequest{}))
     };
 
     // write response

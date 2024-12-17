@@ -4,18 +4,18 @@ use std::str;
 // Header constructs for Kafka messages
 //
 
-pub enum Header {
+pub enum KafkaHeader {
     Request(RequestHeader),
     Response(ResponseHeader)
 }
 
-impl Header {
+impl KafkaHeader {
     pub fn encode(&self) -> Vec<u8> {
         match &self {
-            Header::Request(request_header) => {
+            KafkaHeader::Request(request_header) => {
                 request_header.encode()
             }
-            Header::Response(response_header) => {
+            KafkaHeader::Response(response_header) => {
                 response_header.encode()
             }
         }
@@ -97,19 +97,26 @@ pub trait Encodable {
 
 
 //
-// Payloads for Kafka messages
+// Body for Kafka messages
 //
 
-pub struct KafkaPayload {
-    pub payload: Box<dyn Encodable> // runt-time polymorphism
+pub enum KafkaBody {
+    Request(Box<dyn Encodable>),
+    Response(Box<dyn Encodable>)
 }
 
-impl Encodable for KafkaPayload {
+impl Encodable for KafkaBody {
     fn encode(&self) -> Vec<u8> {
-        self.payload.encode()
+        match self {
+            KafkaBody::Request(request) => {
+                request.encode()
+            }
+            KafkaBody::Response(response) => {
+                response.encode()
+            }
+        }
     }
 }
-
 
 //
 // ApiVersions
@@ -122,7 +129,6 @@ impl Encodable for ApiVersionsRequest {
         Vec::new()
     }
 }
-
 
 pub struct ApiKey {
     pub api_key: i16,
@@ -186,8 +192,8 @@ pub struct ProduceResponse {}
 
 pub struct KafkaMessage {
     pub size: i32,
-    pub header: Header,
-    pub body: KafkaPayload
+    pub header: KafkaHeader,
+    pub body: KafkaBody
 }
 
 impl KafkaMessage {

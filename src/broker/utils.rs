@@ -1,4 +1,4 @@
-use crate::common::{ApiVersionsRequest, Encodable, KafkaMessage, KafkaPayload, RequestHeader};
+use crate::common::{ApiVersionsRequest, KafkaBody, Encodable, KafkaMessage, RequestHeader, KafkaHeader};
 
 pub fn decode_kafka_request(bytes: &[u8]) -> KafkaMessage {
     
@@ -18,9 +18,7 @@ pub fn decode_kafka_request(bytes: &[u8]) -> KafkaMessage {
     let dummy = ApiVersionsRequest{};
     KafkaMessage {
         size: message_size,
-        header: crate::common::Header::Request(header),
-        body: KafkaPayload {
-            payload: Box::new(dummy)
-        }
+        header: KafkaHeader::Request(header),
+        body: KafkaBody::Request(Box::new(dummy))
     }
 }
