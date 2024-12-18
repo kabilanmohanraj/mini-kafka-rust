@@ -10,8 +10,8 @@ impl Encodable for ApiVersionsResponse {
             bytes.extend(&api_key.api_key.to_be_bytes());
             bytes.extend(&api_key.min_version.to_be_bytes());
             bytes.extend(&api_key.max_version.to_be_bytes());
+            bytes.push(0);
         }
-        bytes.push(0);
 
         bytes.extend(self.throttle_time_ms.to_be_bytes());
 
