@@ -1,4 +1,4 @@
-use crate::common::{ApiVersionsRequest, KafkaBody, Encodable, KafkaMessage, RequestHeader, KafkaHeader};
+use crate::{common::{ApiVersionsRequest, Encodable, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader}, types::CompactString};
 
 pub fn decode_kafka_request(bytes: &[u8]) -> KafkaMessage {
     
@@ -15,7 +15,11 @@ pub fn decode_kafka_request(bytes: &[u8]) -> KafkaMessage {
 
 
     // construct the Kafka message from bytes
-    let dummy = ApiVersionsRequest{};
+    let dummy = ApiVersionsRequest{
+        client_software_name: CompactString::new("kafka-client-script".to_string()),
+        client_software_version: CompactString::new("0.1".to_string())
+    };
+    
     KafkaMessage {
         size: message_size,
         header: KafkaHeader::Request(header),

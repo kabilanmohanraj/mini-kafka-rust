@@ -2,57 +2,75 @@
 #![allow(dead_code)]
 mod common;
 mod broker;
+mod client;
+mod types;
 
 use std::{error, io::{Read, Write}, net::{TcpListener, TcpStream}};
 use common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, Encodable, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader, ResponseHeader};
 use broker::utils::decode_kafka_request;
 
-fn handle_stream(mut stream: TcpStream) {
+fn handle_connection(mut stream: TcpStream) {
     // read request
     let mut buf = [0; 1024];
-    stream.read(&mut buf).unwrap();
+    println!("Client connected: {:?}", stream.peer_addr());
 
-    // decode request from the client
-    let request = decode_kafka_request(&buf);
-
-    // extract correlation ID from the request header
-    let correlation_id = match &request.header {
-        KafkaHeader::Request(req_header) => req_header.correlation_id,
-        _ => {
-            panic!("Expected RequestHeader in the KafkaMessage");
+    while let Ok(bytes_read) = stream.read(&mut buf) {
+        if bytes_read == 0 {
+            println!("Client disconnected");
+            break; // Exit the loop when the client closes the connection
         }
-    };
 
-    let error_code = match &request.header {
-        KafkaHeader::Request(req_header) => {
-            if req_header.api_version > 4 || req_header.api_version < 0 {
-                println!("{}", 35);
-                35
-            } else {
-                0
+        // decode request from the client
+        let request = decode_kafka_request(&buf[..bytes_read]);
+
+        // extract correlation ID and error code from the request header
+        let correlation_id = match &request.header {
+            KafkaHeader::Request(req_header) => req_header.correlation_id,
+            _ => {
+                println!("Invalid request header");
+                break;
             }
-        },
-        _ => {
-            35
+        };
+
+        let error_code = match &request.header {
+            KafkaHeader::Request(req_header) => {
+                if req_header.api_version > 4 || req_header.api_version < 0 {
+                    35
+                } else {
+                    0
+                }
+            }
+            _ => 35,
+        };
+
+        // create response
+        let response = KafkaMessage {
+            size: 0,
+            header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
+            body: KafkaBody::Response(Box::new(ApiVersionsResponse {
+                error_code,
+                api_versions: vec![ApiKey {
+                    api_key: 18,
+                    min_version: 0,
+                    max_version: 4,
+                }],
+                throttle_time_ms: 20,
+            })),
+        };
+
+        // encode the response
+        let encoded_response = response.encode();
+
+        // write encoded response to the socket
+        if let Err(e) = stream.write_all(&encoded_response) {
+            println!("Error writing to stream: {}", e);
+            break;
         }
-    };
 
-    let response = KafkaMessage{
-        size: 0,
-        header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
-        body: KafkaBody::Response(
-                            Box::new(ApiVersionsResponse{
-                                error_code: error_code,
-                                api_versions: vec![ApiKey{api_key: 18, min_version: 0, max_version: 4}],
-                                throttle_time_ms: 20
-                            }))
-    };
+        println!("Response sent, waiting for the next request...");
+    }
 
-    // encode the response
-    let encoded_response = response.encode();
-
-    // write encoded response to the socket 
-    stream.write(&encoded_response).unwrap();
+    println!("Connection closed...")
 }
 
 fn main() {
@@ -61,11 +79,12 @@ fn main() {
     match listener {
         Ok(listener) => {
             println!("Listening on 9092");
+            
             for stream in listener.incoming() {
                 match stream {
                     Ok(stream) => {
                         println!("Connection established");
-                        handle_stream(stream);
+                        handle_connection(stream);
                     }
                     Err(e) => {
                         println!("Error: {}", e);
