@@ -17,7 +17,7 @@ fn handle_connection(mut stream: TcpStream) {
     while let Ok(bytes_read) = stream.read(&mut buf) {
         if bytes_read == 0 {
             println!("Client disconnected");
-            break; // Exit the loop when the client closes the connection
+            break; // exit the loop only when the client closes the connection
         }
 
         // decode request from the client
@@ -84,7 +84,9 @@ fn main() {
                 match stream {
                     Ok(stream) => {
                         println!("Connection established");
-                        handle_connection(stream);
+                        std::thread::spawn(move || {
+                            handle_connection(stream);
+                        });
                     }
                     Err(e) => {
                         println!("Error: {}", e);
