@@ -25,7 +25,7 @@ fn handle_stream(mut stream: TcpStream) {
 
     let error_code = match &request.header {
         KafkaHeader::Request(req_header) => {
-            if req_header.api_version > 4 {
+            if req_header.api_version > 4 || req_header.api_version < 0 {
                 println!("{}", 35);
                 35
             } else {
