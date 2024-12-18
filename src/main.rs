@@ -3,7 +3,7 @@
 mod common;
 mod broker;
 
-use std::{io::{Read, Write}, net::{TcpListener, TcpStream}};
+use std::{error, io::{Read, Write}, net::{TcpListener, TcpStream}};
 use common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, Encodable, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader, ResponseHeader};
 use broker::utils::decode_kafka_request;
 
@@ -23,30 +23,36 @@ fn handle_stream(mut stream: TcpStream) {
         }
     };
 
-    let header = KafkaHeader::Response(ResponseHeader::new(correlation_id)).encode();
-    let body = KafkaBody::Response(
-        Box::new(ApiVersionsResponse{
-            error_code: 35,
-            api_versions: vec![ApiKey{api_key: 18, min_version: 0, max_version: 4}]
-        })).encode();
+    let error_code = match &request.header {
+        KafkaHeader::Request(req_header) => {
+            if req_header.api_version > 4 {
+                println!("{}", 35);
+                35
+            } else {
+                0
+            }
+        },
+        _ => {
+            35
+        }
+    };
 
-    let size = ( header.len() + body.len() ) as i32;
-    println!("{}", size);
-
-    // compute response
     let response = KafkaMessage{
-        size: size,
+        size: 0,
         header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
         body: KafkaBody::Response(
                             Box::new(ApiVersionsResponse{
-                                error_code: 0,
-                                api_versions: vec![ApiKey{api_key: 18, min_version: 0, max_version: 4}]
+                                error_code: error_code,
+                                api_versions: vec![ApiKey{api_key: 18, min_version: 0, max_version: 4}],
+                                throttle_time_ms: 20
                             }))
     };
 
+    // encode the response
+    let encoded_response = response.encode();
 
-    // write response
-    stream.write(&response.encode()).unwrap();
+    // write encoded response to the socket 
+    stream.write(&encoded_response).unwrap();
 }
 
 fn main() {

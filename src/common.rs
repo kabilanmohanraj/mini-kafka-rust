@@ -136,22 +136,35 @@ pub struct ApiKey {
     pub max_version: i16
 }
 
+// TODO: Add TAG_BUFFER
+
+// ApiVersions Response (Version: 4) => error_code [api_keys] throttle_time_ms TAG_BUFFER 
+//   error_code => INT16
+//   api_keys => api_key min_version max_version TAG_BUFFER 
+//     api_key => INT16
+//     min_version => INT16
+//     max_version => INT16
+//   throttle_time_ms => INT32
 pub struct ApiVersionsResponse {
     pub error_code: i16,
-    pub api_versions: Vec<ApiKey>
+    pub api_versions: Vec<ApiKey>,
+    pub throttle_time_ms: i32
 }
 
 impl Encodable for ApiVersionsResponse {
     fn encode(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend(self.error_code.to_be_bytes());
-        bytes.extend((self.api_versions.len() as i32).to_be_bytes());
+        bytes.extend(((self.api_versions.len()+1) as i8).to_be_bytes());
 
         for api_key in &self.api_versions {
             bytes.extend(&api_key.api_key.to_be_bytes());
             bytes.extend(&api_key.min_version.to_be_bytes());
             bytes.extend(&api_key.max_version.to_be_bytes());
         }
+        bytes.push(0);
+
+        bytes.extend(self.throttle_time_ms.to_be_bytes());
 
         bytes
     }
@@ -198,17 +211,33 @@ pub struct KafkaMessage {
 
 impl KafkaMessage {
     pub fn encode(&self) -> Vec<u8> {
-        let mut bytes: Vec<u8> = Vec::new();
+        let mut buf: Vec<u8> = Vec::new();
+
+        let (bytes_temp, message_len) = self.encode_helper();
 
         // encode message size
-        bytes.extend(self.size.to_be_bytes());
+        buf.extend((message_len+1).to_be_bytes());
+        buf.extend(bytes_temp);
+        buf.push(0);
 
+        buf
+    }
+
+    fn encode_helper(&self) -> (Vec<u8>, i32) {
+        let mut bytes: Vec<u8> = Vec::new();
+
+        let mut message_len = 0;
+        
         // encode header information
-        bytes.extend(self.header.encode());
+        let header_encode = self.header.encode();
+        message_len += header_encode.len() as i32;
+        bytes.extend(header_encode);
 
         // encode message body
-        bytes.extend(self.body.encode());
+        let body_encode = self.body.encode();
+        message_len += body_encode.len() as i32;
+        bytes.extend(body_encode);
 
-        bytes
+        (bytes, message_len)
     }
 }
