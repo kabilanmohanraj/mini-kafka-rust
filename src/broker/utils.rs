@@ -51,7 +51,7 @@ pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
             // from the Kafka codebase -> https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/requests/RequestContext.java#L111
             kmessage = KafkaMessage {
                 size: 0,
-                header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
+                header: KafkaHeader::Response(ResponseHeader::new(correlation_id, 0)),
                 body: KafkaBody::Response(Box::new(ApiVersionsResponse {
                     error_code,
                     api_versions: api_version_map.iter()
@@ -72,7 +72,8 @@ pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
             kmessage = match request.body.process() {
                 Ok(response) => KafkaMessage {
                     size: 0,
-                    header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
+                    header: KafkaHeader::Response(ResponseHeader::new(correlation_id, find_header_version(request.header.get_api_key())),
+                    ),
                     body: response,
                 },
                 Err(_) => {
@@ -138,4 +139,12 @@ fn validate_api_version(req_header: &KafkaHeader, api_version_map: &HashMap<i16,
     };
 
     error_code
+}
+
+fn find_header_version(api_key: i16) -> i8 {
+    match api_key {
+        18 => 0,
+        75 => 1,
+        _ => 1,
+    }
 }

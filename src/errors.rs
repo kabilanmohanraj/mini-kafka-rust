@@ -11,3 +11,6 @@ pub enum BrokerError {
     UnsupportedVersion,
     UnknownTopicOrPartition,
 }
+
+// FIXME: https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/protocol/Errors.java
+// Error handling - todo()

@@ -10,10 +10,24 @@ use crate::traits::{Decodable, Encodable, Codec};
 // KafkaMessage schema
 //
 
-pub struct KafkaMessage {
+// Client Request
+pub struct ClientRequest {
     pub size: i32,
     pub header: KafkaHeader,
     pub body: KafkaBody
+}
+
+// Client Response
+pub struct ClientResponse {
+    pub size: i32,
+    pub header: KafkaHeader,
+    pub body: KafkaBody
+}
+
+pub struct KafkaMessage {
+    pub size: i32,
+    pub header: KafkaHeader,
+    pub body: KafkaBody,
 }
 
 impl KafkaMessage {
@@ -68,7 +82,8 @@ pub struct RequestHeader {
 
 pub struct ResponseHeader {
     pub correlation_id: i32,
-    pub tagged_fields: TaggedFields
+    pub tagged_fields: TaggedFields,
+    pub header_version: i8
 }
 
 
@@ -84,6 +99,17 @@ impl KafkaHeader {
             }
             KafkaHeader::Response(response_header) => {
                 response_header.encode()
+            }
+        }
+    }
+
+    pub fn get_api_key(&self) -> i16 {
+        match &self {
+            KafkaHeader::Request(request_header) => {
+                request_header.api_key
+            }
+            _ => {
+                0
             }
         }
     }
@@ -128,7 +154,6 @@ impl RequestHeader {
 
         let temp: &[u8; 4] = &bytes[4..8].try_into().expect("Could not get correlation id from buffer...\n");
         let correlation_id = i32::from_be_bytes(*temp);
-        // println!("{}", correlation_id);
         offset += 8;
 
         let temp: &[u8; 2] = &bytes[offset..offset+2].try_into().expect("Could not get client id length from buffer...\n");
@@ -164,17 +189,25 @@ impl RequestHeader {
 }
 
 impl ResponseHeader {
-    pub fn new(correlation_id: i32) -> Self {
+    pub fn new(correlation_id: i32, header_version: i8) -> Self {
         Self {
             correlation_id,
-            tagged_fields: TaggedFields(None)
+            tagged_fields: TaggedFields(None),
+            header_version: header_version
         }
     }
 
     pub fn encode(&self) -> Vec<u8> {
         let mut header_bytes: Vec<u8> = Vec::new();
+
         header_bytes.extend(self.correlation_id.to_be_bytes());
-        header_bytes.extend(self.tagged_fields.encode());
+        
+        match self.header_version {
+            0 => {}
+            _ => {
+                header_bytes.extend(self.tagged_fields.encode());
+            }
+        }
 
         header_bytes
     }

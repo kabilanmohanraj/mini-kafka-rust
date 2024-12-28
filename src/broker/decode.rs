@@ -39,7 +39,7 @@ impl Decodable for KafkaMessage {
         return Ok( (KafkaMessage {
             size: message_size,
             header: KafkaHeader::Request(request_header),
-            body: request
+            body: request,
         }, 0) )
     }
 }

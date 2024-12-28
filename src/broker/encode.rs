@@ -8,8 +8,6 @@ impl Encodable for ApiVersionsResponse {
         bytes.extend(self.error_code.to_be_bytes());
         bytes.extend(((self.api_versions.len() as i8) + 1).to_be_bytes());
 
-        println!("ApiVersionsResponse: {:?}", self.api_versions.len());
-
         for api in &self.api_versions {
             bytes.extend(api.api_key.to_be_bytes());
             bytes.extend(api.min_version.to_be_bytes());
