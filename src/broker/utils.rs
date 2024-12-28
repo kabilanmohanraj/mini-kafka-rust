@@ -1,8 +1,13 @@
+use core::error;
 use std::{collections::HashMap, io::{Read, Write}, net::{TcpListener, TcpStream}, sync::Arc};
 
-use crate::{common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, Encodable, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader, ResponseHeader}, types::CompactString, utils::build_api_version_map};
+use crate::{broker::traits::RequestProcess, common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsResponse, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader, ResponseHeader, ResponseTopic, TaggedFields}, primitive_types::CompactString};
+use crate::traits::{Encodable, Decodable};
+use crate::broker::traits::Request;
 
-fn handle_connection(mut stream: TcpStream, api_version_map: &HashMap<i16, (i16, i16)>) {
+use crate::broker::broker::Broker;
+
+pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
     // read request
     let mut buf = [0; 1024];
     println!("Client connected: {:?}", stream.peer_addr());
@@ -13,8 +18,14 @@ fn handle_connection(mut stream: TcpStream, api_version_map: &HashMap<i16, (i16,
             break; // exit the loop only when the client closes the connection
         }
 
-        // decode request from the client
-        let request = decode_kafka_request(&buf[..bytes_read]);
+        // decode request sent by the client
+        let request = match KafkaMessage::decode(&buf[..bytes_read]) {
+            Ok((kmessage, _)) => kmessage,
+            Err(_) => {
+                println!("Error decoding request");
+                break;
+            }
+        };
 
         // extract correlation ID and error code from the request header
         let correlation_id = match &request.header {
@@ -25,44 +36,55 @@ fn handle_connection(mut stream: TcpStream, api_version_map: &HashMap<i16, (i16,
             }
         };
 
-        let error_code = match &request.header {
-            KafkaHeader::Request(req_header) => {
-                match api_version_map.get(&req_header.api_key) {
-                    Some(supported_versions) => {
-                        if req_header.api_version > supported_versions.1 || req_header.api_version < supported_versions.0 {
-                            35 as i16
-                        } else {
-                            0 as i16
-                        }
-                    },
-                    None => 35 as i16,
-                }
-            }
-            _ => 35 as i16,
-        };
+        let api_version_map: HashMap<i16, (i16, i16)> = build_api_version_map();
 
-        // create response
-        let response = KafkaMessage {
-            size: 0,
-            header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
-            body: KafkaBody::Response(Box::new(ApiVersionsResponse {
-                error_code,
-                // api_versions: vec![ApiKey {
-                //     api_key: 18,
-                //     min_version: 0,
-                //     max_version: 4,
-                // }],
-                api_versions: api_version_map.iter().map(|(&api_key, &(min_version, max_version))| ApiKey {
-                    api_key,
-                    min_version,
-                    max_version,
-                }).collect(),
-                throttle_time_ms: 20,
-            })),
-        };
+        let error_code = validate_api_version(&request.header, &api_version_map);
+        println!("Error code: {}", error_code);
+        // create client response
+        let kmessage: KafkaMessage;
+
+        if error_code != 0 {
+            println!("Unsupported API version");
+
+            // create error response
+            // requests with unsupported API version are treated as ApiVersionsRequest v0
+            // from the Kafka codebase -> https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/requests/RequestContext.java#L111
+            kmessage = KafkaMessage {
+                size: 0,
+                header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
+                body: KafkaBody::Response(Box::new(ApiVersionsResponse {
+                    error_code,
+                    api_versions: api_version_map.iter()
+                                        .map(|(&api_key, &(min_version, max_version))| ApiKey {
+                                            api_key,
+                                            min_version,
+                                            max_version,
+                                            tagged_fields: TaggedFields(None),
+                                        }).collect(),
+                    throttle_time_ms: 0,
+                    tagged_fields: TaggedFields(None),
+                })),
+            };
+
+        } else {
+
+            // create valid response
+            kmessage = match request.body.process() {
+                Ok(response) => KafkaMessage {
+                    size: 0,
+                    header: KafkaHeader::Response(ResponseHeader::new(correlation_id)),
+                    body: response,
+                },
+                Err(_) => {
+                    println!("Error processing request");
+                    break;
+                }
+            };
+
+        }
 
         // encode the response
-        let encoded_response = response.encode();
+        let encoded_response = kmessage.encode();
 
         // write encoded response to the socket
         if let Err(e) = stream.write_all(&encoded_response) {
@@ -73,6 +95,8 @@ fn handle_connection(mut stream: TcpStream, api_version_map: &HashMap<i16, (i16,
         println!("Response sent, waiting for the next request...");
     }
 
+    // return the borrowed connection to the pool
+    broker.return_connection(stream);
     println!("Connection closed...")
 }
 
@@ -83,77 +107,35 @@ fn get_all_apis() -> Vec<ApiKey> {
     apis
 }
 
+pub fn build_api_version_map() -> HashMap<i16, (i16, i16)> {
+    let mut api_versions: HashMap<i16, (i16, i16)> = HashMap::new();
 
-pub fn init_broker() {
-    // initialize metadata
-    let api_version_map = Arc::new(build_api_version_map());
+    // Hardcode the API versions here
+    // key => api_key
+    // value => tuple(min_version, max_version)
+    api_versions.insert(18, (0, 4));
+    api_versions.insert(75, (0, 0));
 
-    // create TCP listener
-    let listener = TcpListener::bind("127.0.0.1:9092");
-
-    match listener {
-        Ok(listener) => {
-            println!("Listening on 9092");
-            
-            for stream in listener.incoming() {
-                match stream {
-                    Ok(stream) => {
-                        println!("Connection established");
-                        let map_clone = Arc::clone(&api_version_map);
-                        std::thread::spawn(move || {
-                            handle_connection(stream, &map_clone);
-                        });
-                    }
-                    Err(e) => {
-                        println!("Error: {}", e);
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            println!("Error: {}", e);
-        }
-    }
+    api_versions
 }
 
-pub fn decode_kafka_request(bytes: &[u8]) -> KafkaMessage {
-    
-    let temp: &[u8; 4] = &bytes[0..4].try_into().expect("Could not get message size from buffer...\n");
-    let message_size = i32::from_be_bytes(*temp);
-    // println!("{}", message_size);
+fn validate_api_version(req_header: &KafkaHeader, api_version_map: &HashMap<i16, (i16, i16)>) -> i16 {
 
-    let header = RequestHeader::decode(bytes);
-
-    match header.api_key {
-        0 => {}
-        _ => {}
-    }
-
-
-    // construct the Kafka message from bytes
-    let dummy = ApiVersionsRequest{
-        client_software_name: CompactString::new("kafka-client-script".to_string()),
-        client_software_version: CompactString::new("0.1".to_string())
-    };
-
-    KafkaMessage {
-        size: message_size,
-        header: KafkaHeader::Request(header),
-        body: KafkaBody::Request(Box::new(dummy))
-    }
-}
-
-
-fn get_error_code(request: &KafkaMessage) -> i16 {
-    match &request.header {
+    let error_code = match req_header {
         KafkaHeader::Request(req_header) => {
-            
-            if req_header.api_version > 4 || req_header.api_version < 0 {
-                35 as i16
-            } else {
-                0 as i16
+            match api_version_map.get(&req_header.api_key) {
+                Some(supported_versions) => {
+                    if req_header.api_version > supported_versions.1 || req_header.api_version < supported_versions.0 {
+                        35 as i16
+                    } else {
+                        0 as i16
+                    }
+                },
+                None => 35 as i16,
             }
         }
         _ => 35 as i16,
-    }
+    };
+
+    error_code
 }
