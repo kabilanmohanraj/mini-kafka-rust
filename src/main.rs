@@ -3,11 +3,10 @@
 mod common;
 mod broker;
 mod client;
-mod primitive_types;
 mod utils;
-mod traits;
 mod errors;
 mod api_versions;
+mod metadata;
 
 use std::sync::Arc;
 

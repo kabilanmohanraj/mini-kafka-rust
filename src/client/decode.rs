@@ -1,4 +1,7 @@
-use crate::{common::{ApiVersionsResponse, DescribeTopicPartitionsResponse, TaggedFields}, errors::KafkaError, primitive_types::CompactArray, traits::Decodable};
+use crate::errors::KafkaError;
+use crate::common::kafka_protocol::{ApiVersionsResponse, DescribeTopicPartitionsResponse, TaggedFields};
+use crate::common::primitive_types::CompactArray;
+use crate::common::traits::Decodable;
 
 impl Decodable for ApiVersionsResponse {
     fn decode(_buf: &[u8]) -> Result<(Self, usize), KafkaError> {

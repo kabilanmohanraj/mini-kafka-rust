@@ -1,9 +1,9 @@
 use uuid::Uuid;
 
-use crate::api_versions::get_all_apis;
-use crate::common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsRequest, DescribeTopicPartitionsResponse, KafkaBody, ResponseTopic, TaggedFields};
 use crate::errors::BrokerError;
-use crate::primitive_types::{CompactArray, CompactNullableString};
+use crate::api_versions::get_all_apis;
+use crate::common::kafka_protocol::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsRequest, DescribeTopicPartitionsResponse, KafkaBody, ResponseTopic, TaggedFields};
+use crate::common::primitive_types::{CompactArray, CompactNullableString};
 
 use crate::broker::traits::RequestProcess;
 

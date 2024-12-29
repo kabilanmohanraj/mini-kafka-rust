@@ -2,7 +2,9 @@
 // Broker specific traits
 //
 
-use crate::{common::KafkaBody, errors::BrokerError, traits::Codec};
+use crate::common::kafka_protocol::KafkaBody;
+use crate::common::traits::Codec;
+use crate::errors::BrokerError;
 
 pub trait RequestProcess {
     fn process(&self) -> Result<KafkaBody, BrokerError>;

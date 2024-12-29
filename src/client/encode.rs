@@ -1,5 +1,5 @@
-use crate::common::{ApiVersionsRequest, DescribeTopicPartitionsRequest};
-use crate::traits::Encodable;
+use crate::common::kafka_protocol::{ApiVersionsRequest, DescribeTopicPartitionsRequest};
+use crate::common::traits::Encodable;
 
 impl Encodable for ApiVersionsRequest {
     fn encode(&self) -> Vec<u8> {

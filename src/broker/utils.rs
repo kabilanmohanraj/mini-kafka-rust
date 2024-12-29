@@ -1,10 +1,11 @@
 
 use std::{io::{Read, Write}, net::TcpStream, sync::Arc};
 
-use crate::{api_versions::{get_all_apis, get_supported_api_versions}, broker::traits::RequestProcess, common::{ApiKey, ApiVersionsResponse, KafkaBody, KafkaHeader, KafkaMessage, ResponseHeader, TaggedFields}};
-use crate::traits::Decodable;
-
+use crate::common::kafka_protocol::{ApiKey, ApiVersionsResponse, KafkaBody, KafkaHeader, KafkaMessage, ResponseHeader, TaggedFields};
+use crate::common::traits::Decodable;
 use crate::broker::broker::Broker;
+use crate::broker::traits::RequestProcess;
+use crate::api_versions::{get_all_apis, get_supported_api_versions};
 
 pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
     // read request

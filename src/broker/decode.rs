@@ -1,7 +1,8 @@
-use crate::common::{ApiVersionsRequest, DescribeTopicPartitionsRequest, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader, RequestTopic, TaggedFields, Cursor};
+use crate::common::traits::Decodable;
 use crate::errors::{BrokerError, KafkaError};
-use crate::primitive_types::{CompactArray, CompactString};
-use crate::traits::Decodable;
+use crate::common::kafka_protocol::{KafkaMessage, KafkaHeader, KafkaBody, RequestHeader, TaggedFields, ApiVersionsRequest, DescribeTopicPartitionsRequest, RequestTopic, Cursor};
+use crate::common::primitive_types::{CompactString, CompactArray};
+
 
 
 impl Decodable for KafkaMessage {
