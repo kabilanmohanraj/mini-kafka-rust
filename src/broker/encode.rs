@@ -1,6 +1,6 @@
-use crate::common::{ApiVersionsResponse, Cursor, DescribeTopicPartitionsResponse, PartitionMetadata, ResponseTopic, TaggedFields};
+use crate::common::{ApiVersionsResponse, Cursor, DescribeTopicPartitionsResponse, PartitionMetadata, ResponseTopic};
 use crate::traits::Encodable;
-use crate::primitive_types::{CompactNullableString, UnsignedVarInt};
+use crate::primitive_types::UnsignedVarInt;
 
 impl Encodable for ApiVersionsResponse {
     fn encode(&self) -> Vec<u8> {

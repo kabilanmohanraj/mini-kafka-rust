@@ -1,9 +1,8 @@
-use core::error;
-use std::{collections::HashMap, io::{Read, Write}, net::{TcpListener, TcpStream}, sync::Arc};
 
-use crate::{api_versions::{get_all_apis, get_supported_api_versions}, broker::traits::RequestProcess, common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsResponse, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader, ResponseHeader, ResponseTopic, TaggedFields}, primitive_types::CompactString};
-use crate::traits::{Encodable, Decodable};
-use crate::broker::traits::Request;
+use std::{io::{Read, Write}, net::TcpStream, sync::Arc};
+
+use crate::{api_versions::{get_all_apis, get_supported_api_versions}, broker::traits::RequestProcess, common::{ApiKey, ApiVersionsResponse, KafkaBody, KafkaHeader, KafkaMessage, ResponseHeader, TaggedFields}};
+use crate::traits::Decodable;
 
 use crate::broker::broker::Broker;
 
@@ -99,20 +98,7 @@ pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
     println!("Connection closed...")
 }
 
-pub fn build_api_version_map() -> HashMap<i16, (i16, i16)> {
-    let mut api_versions: HashMap<i16, (i16, i16)> = HashMap::new();
-
-    // Hardcode the API versions here
-    // key => api_key
-    // value => tuple(min_version, max_version)
-    api_versions.insert(18, (0, 4));
-    api_versions.insert(75, (0, 0));
-
-    api_versions
-}
-
 fn validate_api_version(req_header: &KafkaHeader) -> i16 {
-
     let error_code = match req_header {
         KafkaHeader::Request(req_header) => {
             match get_supported_api_versions(req_header.api_key) {

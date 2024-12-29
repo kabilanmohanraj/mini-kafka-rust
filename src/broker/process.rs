@@ -1,15 +1,11 @@
-use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::api_versions::get_all_apis;
-use crate::common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsRequest, DescribeTopicPartitionsResponse, KafkaBody, KafkaMessage, ResponseTopic, TaggedFields};
+use crate::common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsRequest, DescribeTopicPartitionsResponse, KafkaBody, ResponseTopic, TaggedFields};
 use crate::errors::BrokerError;
 use crate::primitive_types::{CompactArray, CompactNullableString};
-use crate::traits::Codec;
 
 use crate::broker::traits::RequestProcess;
-
-use super::utils::build_api_version_map;
 
 impl RequestProcess for KafkaBody {
     fn process(&self) -> Result<KafkaBody, BrokerError> {
@@ -51,7 +47,6 @@ impl RequestProcess for DescribeTopicPartitionsRequest {
 
 impl RequestProcess for ApiVersionsRequest {
     fn process(&self) -> Result<KafkaBody, BrokerError> {
-        
         // create response
         let response_body = KafkaBody::Response(Box::new(
             ApiVersionsResponse {

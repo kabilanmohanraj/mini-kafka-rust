@@ -1,16 +1,17 @@
-use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::broker;
 use crate::broker::utils::process_request;
-use crate::broker::utils::build_api_version_map;
 
 pub struct Broker {
+    // network management
     listening_socket: TcpListener,
     connection_pool: RwLock<Vec<TcpStream>>,
     max_concurrent_connections: u8,
     current_connections: Mutex<u8>,
+
+    // cluster metadata management
+
 }
 
 impl Broker {
