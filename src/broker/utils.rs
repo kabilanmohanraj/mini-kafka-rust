@@ -1,7 +1,7 @@
 use core::error;
 use std::{collections::HashMap, io::{Read, Write}, net::{TcpListener, TcpStream}, sync::Arc};
 
-use crate::{broker::traits::RequestProcess, common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsResponse, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader, ResponseHeader, ResponseTopic, TaggedFields}, primitive_types::CompactString};
+use crate::{api_versions::{get_all_apis, get_supported_api_versions}, broker::traits::RequestProcess, common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsResponse, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader, ResponseHeader, ResponseTopic, TaggedFields}, primitive_types::CompactString};
 use crate::traits::{Encodable, Decodable};
 use crate::broker::traits::Request;
 
@@ -36,9 +36,7 @@ pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
             }
         };
 
-        let api_version_map: HashMap<i16, (i16, i16)> = build_api_version_map();
-
-        let error_code = validate_api_version(&request.header, &api_version_map);
+        let error_code = validate_api_version(&request.header);
         println!("Error code: {}", error_code);
         // create client response
         let kmessage: KafkaMessage;
@@ -54,8 +52,8 @@ pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
                 header: KafkaHeader::Response(ResponseHeader::new(correlation_id, 0)),
                 body: KafkaBody::Response(Box::new(ApiVersionsResponse {
                     error_code,
-                    api_versions: api_version_map.iter()
-                                        .map(|(&api_key, &(min_version, max_version))| ApiKey {
+                    api_versions: get_all_apis().iter()
+                                        .map(|&(api_key, (min_version, max_version))| ApiKey {
                                             api_key,
                                             min_version,
                                             max_version,
@@ -101,13 +99,6 @@ pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
     println!("Connection closed...")
 }
 
-
-fn get_all_apis() -> Vec<ApiKey> {
-    let apis: Vec<ApiKey> = Vec::new();
-
-    apis
-}
-
 pub fn build_api_version_map() -> HashMap<i16, (i16, i16)> {
     let mut api_versions: HashMap<i16, (i16, i16)> = HashMap::new();
 
@@ -120,11 +111,11 @@ pub fn build_api_version_map() -> HashMap<i16, (i16, i16)> {
     api_versions
 }
 
-fn validate_api_version(req_header: &KafkaHeader, api_version_map: &HashMap<i16, (i16, i16)>) -> i16 {
+fn validate_api_version(req_header: &KafkaHeader) -> i16 {
 
     let error_code = match req_header {
         KafkaHeader::Request(req_header) => {
-            match api_version_map.get(&req_header.api_key) {
+            match get_supported_api_versions(req_header.api_key) {
                 Some(supported_versions) => {
                     if req_header.api_version > supported_versions.1 || req_header.api_version < supported_versions.0 {
                         35 as i16

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-
 use uuid::Uuid;
 
+use crate::api_versions::get_all_apis;
 use crate::common::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsRequest, DescribeTopicPartitionsResponse, KafkaBody, KafkaMessage, ResponseTopic, TaggedFields};
 use crate::errors::BrokerError;
 use crate::primitive_types::{CompactArray, CompactNullableString};
@@ -26,7 +26,6 @@ impl RequestProcess for KafkaBody {
 
 impl RequestProcess for DescribeTopicPartitionsRequest {
     fn process(&self) -> Result<KafkaBody, BrokerError> {
-
         Ok( KafkaBody::Response(Box::new(DescribeTopicPartitionsResponse {
             throttle_time_ms: 0,
             topics: CompactArray { 
@@ -52,15 +51,13 @@ impl RequestProcess for DescribeTopicPartitionsRequest {
 
 impl RequestProcess for ApiVersionsRequest {
     fn process(&self) -> Result<KafkaBody, BrokerError> {
-
-        let api_version_map: HashMap<i16, (i16, i16)> = build_api_version_map();
         
         // create response
         let response_body = KafkaBody::Response(Box::new(
             ApiVersionsResponse {
                 error_code: 0,
-                api_versions: api_version_map.iter()
-                                .map(|(&api_key, &(min_version, max_version))| ApiKey {
+                api_versions: get_all_apis().iter()
+                                .map(|&(api_key, (min_version, max_version))| ApiKey {
                                     api_key,
                                     min_version,
                                     max_version,

@@ -5,7 +5,7 @@ use crate::{errors::KafkaError, traits::{Decodable, Encodable}};
 // VAR_INT
 //
 
-pub fn encode_var_int(mut integer: u32) -> Vec<u8> {
+pub fn encode_unsigned_var_int(mut integer: u32) -> Vec<u8> {
     // Protobuf's zig-zag encoding for VARINT
     let mut res: Vec<u8> = Vec::new();
 
@@ -40,17 +40,17 @@ pub fn encode_var_int(mut integer: u32) -> Vec<u8> {
 
     res
 }
-pub struct VarInt {
-    pub data: i32
+pub struct UnsignedVarInt {
+    pub data: u32
 }
 
-impl Encodable for VarInt {
+impl Encodable for UnsignedVarInt {
     fn encode(&self) -> Vec<u8> {
-        encode_var_int(self.data as u32)
+        encode_unsigned_var_int(self.data as u32)
     }
 }
 
-impl Decodable for VarInt {
+impl Decodable for UnsignedVarInt {
     fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
         let mut chunk_arr: Vec<u8> = Vec::new();
 
@@ -62,7 +62,7 @@ impl Decodable for VarInt {
 
         // check if we've reached the end of the buffer without a terminating byte
         if i >= buf.len() {
-            println!("Incomplete VarInt: No terminating byte found");
+            println!("Incomplete UnsignedVarInt: No terminating byte found");
             return Err(KafkaError::DecodeError);
         }
 
@@ -71,13 +71,13 @@ impl Decodable for VarInt {
         chunk_arr.reverse(); // little-endian to big-endian conversion
 
         // decode the VarInt from chunks
-        let mut integer: i32 = 0;
+        let mut integer: u32 = 0;
         for chunk in &chunk_arr {
             integer <<= 7;
-            integer |= *chunk as i32;
+            integer |= *chunk as u32;
         }
 
-        Ok( (VarInt { data: integer }, chunk_arr.len()) )
+        Ok( (UnsignedVarInt { data: integer }, chunk_arr.len()) )
     }
 }
 
@@ -106,8 +106,8 @@ impl Encodable for CompactString {
 
         // encode length prefix as a varint
         buf.extend(
-            VarInt{
-                data: self.data.len() as i32 + 1
+            UnsignedVarInt{
+                data: self.data.len() as u32 + 1
             }.encode());
         buf.extend(self.data.bytes());
 
@@ -119,7 +119,7 @@ impl Decodable for CompactString {
     fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
         let mut byte_offset = 0;
 
-        match VarInt::decode(buf) {
+        match UnsignedVarInt::decode(buf) {
             Ok( (varint, varint_byte_length) ) => {
                 byte_offset += varint_byte_length;
                 let data_length = varint.data - 1;
@@ -256,7 +256,7 @@ impl Decodable for CompactNullableString {
 
         let mut byte_offset = 0;
 
-        match VarInt::decode(buf) {
+        match UnsignedVarInt::decode(buf) {
             Ok( (varint,varint_byte_length) ) => {
                 byte_offset += varint_byte_length;
                 let data_length = varint.data - 1;
@@ -311,8 +311,8 @@ impl<T: Encodable> Encodable for CompactArray<T> {
         let mut buf: Vec<u8> = Vec::new();
 
         buf.extend(
-            VarInt {
-                data: self.data.len() as i32 + 1
+            UnsignedVarInt {
+                data: self.data.len() as u32 + 1
             }.encode()
         );
 
@@ -329,7 +329,7 @@ impl<T: Decodable> Decodable for CompactArray<T> {
     fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
         let mut byte_offset = 0;
 
-        match VarInt::decode(buf) {
+        match UnsignedVarInt::decode(buf) {
             Ok( (varint,varint_byte_length) ) => {
                 byte_offset += varint_byte_length;
                 let array_length = varint.data - 1;

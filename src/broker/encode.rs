@@ -1,6 +1,6 @@
 use crate::common::{ApiVersionsResponse, Cursor, DescribeTopicPartitionsResponse, PartitionMetadata, ResponseTopic, TaggedFields};
 use crate::traits::Encodable;
-use crate::primitive_types::{CompactNullableString, VarInt};
+use crate::primitive_types::{CompactNullableString, UnsignedVarInt};
 
 impl Encodable for ApiVersionsResponse {
     fn encode(&self) -> Vec<u8> {
@@ -51,8 +51,8 @@ impl Encodable for ResponseTopic {
         buf.push(self.is_internal as u8);
 
         
-        let arr_length = VarInt {
-            data: self.partitions.data.len() as i32 + 1
+        let arr_length = UnsignedVarInt {
+            data: self.partitions.data.len() as u32 + 1
         };
 
         buf.extend(arr_length.encode());

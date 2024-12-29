@@ -7,6 +7,7 @@ mod primitive_types;
 mod utils;
 mod traits;
 mod errors;
+mod api_versions;
 
 use std::sync::Arc;
 

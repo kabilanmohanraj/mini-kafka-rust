@@ -1,6 +1,6 @@
 use crate::common::{ApiVersionsRequest, DescribeTopicPartitionsRequest, KafkaBody, KafkaHeader, KafkaMessage, RequestHeader, RequestTopic, TaggedFields, Cursor};
 use crate::errors::{BrokerError, KafkaError};
-use crate::primitive_types::{CompactArray, CompactString, VarInt};
+use crate::primitive_types::{CompactArray, CompactString};
 use crate::traits::Decodable;
 
 
