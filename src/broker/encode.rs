@@ -16,7 +16,6 @@ impl Encodable for ApiVersionsResponse {
         }
 
         bytes.extend(self.throttle_time_ms.to_be_bytes());
-        // bytes.extend(self.tagged_fields.encode());
 
         bytes
     }
@@ -48,7 +47,6 @@ impl Encodable for ResponseTopic {
         buf.extend(self.error_code.to_be_bytes());
         buf.extend(self.name.encode());
 
-        println!(" ===> topic_id: {:?}", self.topic_id);
         buf.extend(self.topic_id);
         buf.push(self.is_internal as u8);
         buf.extend(self.partitions.encode());
