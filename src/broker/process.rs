@@ -174,27 +174,6 @@ impl RequestProcess for DescribeTopicPartitionsRequest {
     }
 }
 
-// Ok( KafkaBody::Response(Box::new(DescribeTopicPartitionsResponse {
-//     throttle_time_ms: 0,
-//     topics: CompactArray { 
-//         data: vec![
-//             ResponseTopic {
-//                 error_code: 3,
-//                 name: CompactNullableString {
-//                     data: Some(self.topics.data[0].name.clone())
-//                 },
-//                 topic_id: "00000000-0000-0000-0000-000000000000".parse::<Uuid>().unwrap().to_bytes_le(),
-//                 is_internal: false,
-//                 partitions: CompactArray { data: vec![] },
-//                 topic_authorized_operations: 10,
-//                 tagged_fields: TaggedFields(None)
-//             }
-//     ] },
-//     next_cursor: None,
-//     tagged_fields: TaggedFields(None),
-//     }))
-// )
-
 impl RequestProcess for ApiVersionsRequest {
     fn process(&self) -> Result<KafkaBody, BrokerError> {
         // create response

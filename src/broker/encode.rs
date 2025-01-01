@@ -1,6 +1,6 @@
 use crate::common::kafka_protocol::{ApiVersionsResponse, Cursor, DescribeTopicPartitionsResponse, PartitionMetadata, ResponseTopic};
 use crate::common::traits::Encodable;
-use crate::common::primitive_types::{SVarInt, UnsignedVarInt};
+use crate::common::primitive_types::SVarInt;
 
 impl Encodable for ApiVersionsResponse {
     fn encode(&self) -> Vec<u8> {
