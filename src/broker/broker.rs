@@ -11,7 +11,7 @@ pub struct Broker {
     current_connections: Mutex<u8>,
 
     // cluster metadata management
-
+    
 }
 
 impl Broker {
@@ -45,9 +45,6 @@ impl Broker {
                             // Use the connection
                             println!("Processing request...");
                             process_request(connection, broker_clone);
-                
-                            // Return the connection to the pool
-                            // broker_clone.return_connection(connection);
                         } else {
                             println!("No available connections.");
                         }

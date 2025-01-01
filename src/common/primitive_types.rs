@@ -2,9 +2,56 @@ use crate::errors::KafkaError;
 
 use super::traits::{Encodable, Decodable};
 
-
 //
 // VAR_INT
+//
+
+pub struct SVarInt {
+    pub data: i32
+}
+
+impl SVarInt {
+    pub fn new(data: i32) -> Self {
+        SVarInt {
+            data
+        }
+    }
+}
+
+impl Encodable for SVarInt {
+    fn encode(&self) -> Vec<u8> {
+        let mut integer = self.data as i32;
+
+        // map negative numbers to even numbers
+        integer = (integer << 1) ^ (integer >> 31);
+
+        // encode as unsigned varint
+        encode_unsigned_var_int(integer as u32)
+    }
+}
+
+impl Decodable for SVarInt {
+    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+        match UnsignedVarInt::decode(buf) {
+            Ok( (varint, varint_byte_length) ) => {
+                let mut integer = varint.data as i32;
+
+                // map even numbers to negative numbers
+                integer = (integer >> 1) ^ -(integer & 1);
+
+                Ok( (SVarInt { data: integer }, varint_byte_length) )
+            },
+            Err(_) => {
+                println!("Could not decode VarInt");
+                return Err(KafkaError::DecodeError);
+            }
+        }
+    }
+}
+
+
+//
+// UNSIGNED_VAR_INT
 //
 
 pub fn encode_unsigned_var_int(mut integer: u32) -> Vec<u8> {
@@ -44,6 +91,14 @@ pub fn encode_unsigned_var_int(mut integer: u32) -> Vec<u8> {
 }
 pub struct UnsignedVarInt {
     pub data: u32
+}
+
+impl UnsignedVarInt {
+    pub fn new(data: u32) -> Self {
+        UnsignedVarInt {
+            data: data
+        }
+    }
 }
 
 impl Encodable for UnsignedVarInt {
@@ -263,8 +318,6 @@ impl Decodable for CompactNullableString {
                 byte_offset += varint_byte_length;
                 let data_length = varint.data - 1;
 
-
-
                 if data_length == 0 {
                     return Ok((CompactNullableString {
                         data: None
@@ -352,5 +405,50 @@ impl<T: Decodable> Decodable for CompactArray<T> {
                 return Err(KafkaError::DecodeError);
             }
         }
+    }
+}
+
+//
+// INT32
+//
+
+impl Encodable for i32 {
+    fn encode(&self) -> Vec<u8> {
+        self.to_be_bytes().to_vec()
+    }
+}
+
+impl Decodable for i32 {
+    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+        if buf.len() < 4 {
+            println!("Buffer too short to decode i32");
+            return Err(KafkaError::DecodeError);
+        }
+
+        Ok( (i32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]), 4) )
+    }
+}
+
+//
+// UUID
+//
+
+impl Encodable for uuid::Uuid {
+    fn encode(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
+    }
+}
+
+impl Decodable for uuid::Uuid {
+    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+        if buf.len() < 16 {
+            println!("Buffer too short to decode UUID");
+            return Err(KafkaError::DecodeError);
+        }
+
+        let mut uuid_bytes: [u8; 16] = [0; 16];
+        uuid_bytes.copy_from_slice(&buf[0..16]);
+
+        Ok( (uuid::Uuid::from_bytes(uuid_bytes), 16) )
     }
 }

@@ -9,8 +9,7 @@ mod api_versions;
 mod metadata;
 
 use std::sync::Arc;
-
-use broker::broker::Broker;
+use crate::broker::broker::Broker;
 
 fn main() {
 

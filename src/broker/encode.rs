@@ -1,6 +1,6 @@
 use crate::common::kafka_protocol::{ApiVersionsResponse, Cursor, DescribeTopicPartitionsResponse, PartitionMetadata, ResponseTopic};
 use crate::common::traits::Encodable;
-use crate::common::primitive_types::UnsignedVarInt;
+use crate::common::primitive_types::{SVarInt, UnsignedVarInt};
 
 impl Encodable for ApiVersionsResponse {
     fn encode(&self) -> Vec<u8> {
@@ -47,21 +47,12 @@ impl Encodable for ResponseTopic {
 
         buf.extend(self.error_code.to_be_bytes());
         buf.extend(self.name.encode());
+
+        println!(" ===> topic_id: {:?}", self.topic_id);
         buf.extend(self.topic_id);
         buf.push(self.is_internal as u8);
-
-        
-        let arr_length = UnsignedVarInt {
-            data: self.partitions.data.len() as u32 + 1
-        };
-
-        buf.extend(arr_length.encode());
-        for partition in &self.partitions.data {
-            buf.extend(partition.encode());
-        }
-
+        buf.extend(self.partitions.encode());
         buf.extend(self.topic_authorized_operations.to_be_bytes());
-
         buf.extend(self.tagged_fields.encode());
 
         buf
@@ -77,26 +68,37 @@ impl Encodable for PartitionMetadata {
         buf.extend(self.leader_id.to_be_bytes());
         buf.extend(self.leader_epoch.to_be_bytes());
 
-        buf.extend((self.replica_nodes.len() as i32).to_be_bytes()); 
+        buf.extend(SVarInt { 
+            data: self.replica_nodes.len() as i32 + 1
+        }.encode());
         for node in &self.replica_nodes {
             buf.extend(node.to_be_bytes());
         }
 
-        buf.extend((self.isr_nodes.len() as i32).to_be_bytes()); 
+        buf.extend(SVarInt { 
+            data: self.isr_nodes.len() as i32 + 1
+        }.encode());
         for node in &self.isr_nodes {
             buf.extend(node.to_be_bytes());
         }
 
-        buf.extend((self.eligible_leader_replicas.len() as i32).to_be_bytes()); 
+        buf.extend(SVarInt { 
+            data: self.eligible_leader_replicas.len() as i32 + 1
+        }.encode());
         for replica in &self.eligible_leader_replicas {
             buf.extend(replica.to_be_bytes());
         }
 
-        buf.extend((self.last_known_elr.len() as i32).to_be_bytes());
+        buf.extend(SVarInt { 
+            data: self.last_known_elr.len() as i32 + 1
+        }.encode());
         for elr in &self.last_known_elr {
             buf.extend(elr.to_be_bytes());
         }
 
+        buf.extend(SVarInt { 
+            data: self.offline_replicas.len() as i32 + 1
+        }.encode());
         buf.extend((self.offline_replicas.len() as i32).to_be_bytes());
         for replica in &self.offline_replicas {
             buf.extend(replica.to_be_bytes());

@@ -92,7 +92,7 @@ impl Decodable for DescribeTopicPartitionsRequest {
         let (request_topics, topics_bytes) = CompactArray::<RequestTopic>::decode(&buf[offset..])?;
         offset += topics_bytes;
 
-        println!("Request topics: {:?}", request_topics.data[0].name.data);
+        println!("Request topic name: {:?}", request_topics.data[0].name.data);
         
         // decode response partition limit
         let temp: &[u8; 4] = match buf[offset..offset+4].try_into() {
@@ -133,8 +133,6 @@ impl Decodable for RequestTopic {
 
         let (name, name_len) = CompactString::decode(&buf[offset..])?;
         offset += name_len;
-
-        println!("Request topic name: {:?}", name.data);
 
         let (tagged_fields, tf_len) = TaggedFields::decode(buf)?;
         offset += tf_len;

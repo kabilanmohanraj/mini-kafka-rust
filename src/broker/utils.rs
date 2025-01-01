@@ -37,7 +37,7 @@ pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
         };
 
         let error_code = validate_api_version(&request.header);
-        println!("Error code: {}", error_code);
+
         // create client response
         let kmessage: KafkaMessage;
 

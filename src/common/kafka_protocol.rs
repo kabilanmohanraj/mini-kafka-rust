@@ -257,10 +257,10 @@ impl Decodable for TaggedField {
     }
 }
 
-pub struct TaggedFields(pub Option<Vec<TaggedField>>);
+pub struct TaggedFields(pub Option<CompactArray<TaggedField>>);
 
 impl TaggedFields {
-    pub fn new(fields: Option<Vec<TaggedField>>) -> Self {
+    pub fn new(fields: Option<CompactArray<TaggedField>>) -> Self {
         TaggedFields(fields)
     }
 
@@ -274,7 +274,7 @@ impl Encodable for TaggedFields {
         let mut buf = Vec::new();
         match &self.0 {
             Some(fields) => {
-                for field in fields {
+                for field in fields.data.iter() {
                     buf.extend(field.encode());
                 }
             }
@@ -386,6 +386,38 @@ pub struct DescribeTopicPartitionsResponse {
     pub topics: CompactArray<ResponseTopic>, 
     pub next_cursor: Option<Cursor>,
     pub tagged_fields: TaggedFields
+}
+
+impl DescribeTopicPartitionsResponse {
+    pub fn empty(&self) -> DescribeTopicPartitionsResponse {
+        DescribeTopicPartitionsResponse {
+            throttle_time_ms: 0,
+            topics: CompactArray { data: vec![] },
+            next_cursor: None,
+            tagged_fields: TaggedFields(None)
+        }
+    }
+
+    pub fn default() -> DescribeTopicPartitionsResponse {
+        DescribeTopicPartitionsResponse {
+            throttle_time_ms: 0,
+            topics: CompactArray { data: vec![
+                ResponseTopic {
+                    error_code: 3,
+                    name: CompactNullableString {
+                        data: Some( CompactString { data: "test".to_string() } )
+                    },
+                    topic_id: "00000000-0000-0000-0000-000000000000".parse::<uuid::Uuid>().unwrap().to_bytes_le(),
+                    is_internal: false,
+                    partitions: CompactArray { data: vec![] },
+                    topic_authorized_operations: 10,
+                    tagged_fields: TaggedFields(None)
+                }
+            ] },
+            next_cursor: None,
+            tagged_fields: TaggedFields(None)
+        }
+    }
 }
 
 pub struct ResponseTopic {
