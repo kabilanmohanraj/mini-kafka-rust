@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::common::traits::Decodable;
 use crate::common::primitive_types::{CompactArray, CompactNullableString, CompactString};
 use crate::common::kafka_record::{PartitionRecord, RecordBatch, RecordValue};
-use crate::common::kafka_protocol::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsRequest, DescribeTopicPartitionsResponse, FetchRequest, FetchResponse, KafkaBody, PartitionMetadata, RequestContext, ResponseTopic, TaggedFields};
+use crate::common::kafka_protocol::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsRequest, DescribeTopicPartitionsResponse, FetchRequest, FetchResponse, FetchResponsePartition, FetchResponseTopic, KafkaBody, PartitionMetadata, RequestContext, ResponseTopic, TaggedFields};
 
 use crate::broker::traits::RequestProcess;
 use crate::errors::BrokerError;
@@ -202,8 +202,106 @@ impl RequestProcess for FetchRequest {
         }
 
         // read record batches from log files
-        
+        // open cluster metadata file
+        let metadata_file_path = Path::new("/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log");
+        let mut metadata_file = File::open(&metadata_file_path).map_err(|_| BrokerError::UnknownError)?;
 
-        Err(BrokerError::UnknownError)
+        // decode cluster metadata
+        let mut buf: Vec<u8> = Vec::new();
+        metadata_file.read_to_end(&mut buf).map_err(|_| BrokerError::UnknownError)?;
+
+        println!("Initial Buffer length: {:?}", buf.len());
+        println!("Decoding record batch...");
+
+        let mut record_batches: Vec<RecordBatch> = Vec::new();
+        let mut offset = 0;
+
+        let mut context_map: HashMap<String, String> = HashMap::new();
+        context_map.insert("is_metadata_request".to_string(), "true".to_string());
+        let request_context = &RequestContext::Some(context_map);
+
+        while offset < buf.len() {
+            let (record_batch, batch_byte_len) = match RecordBatch::decode(&buf[offset..], request_context) {
+                Ok( (record_batch, batch_byte_len) ) => {
+                    (record_batch, batch_byte_len)
+                }
+                Err(_) => {
+                    return Err(BrokerError::UnknownError);
+                }
+            };
+
+            record_batches.push(record_batch);
+            offset += batch_byte_len;
+        }
+
+        // iterate over record values from record batches
+        let topic_name_to_uuid: HashMap<String, Uuid> = record_batches
+            .iter()
+            .flat_map(|record_batch| {
+                record_batch.records.iter().filter_map(|metadata_record| {
+                    match &metadata_record.value {
+                        RecordValue::TopicRecord(topic_record) => {
+                            Some((topic_record.topic_name.data.clone(), topic_record.topic_id))
+                        }
+                        _ => None,
+                    }
+                })
+            })
+            .collect();
+
+        for (topic_name, uuid) in &topic_name_to_uuid {
+            println!("Topic Name: {}, UUID: {}", topic_name, uuid);
+        }
+
+        let mut topic_uuid_to_partitions: HashMap<Uuid, Vec<&PartitionRecord>> = HashMap::new();
+        for record_batch in &record_batches {
+            for metadata_record in &record_batch.records {
+                if let RecordValue::PartitionRecord(partition_record) = &metadata_record.value {
+                    topic_uuid_to_partitions
+                        .entry(partition_record.topic_id)
+                        .or_insert_with(Vec::new)
+                        .push(partition_record);
+                }
+            }
+        }
+
+        for (uuid, temp_partitions) in &topic_uuid_to_partitions {
+            println!("Topic UUID: {}, #Partitions: {}", uuid, temp_partitions.len());
+        }
+
+        let mut response = FetchResponse::empty();
+
+        // check topic existence
+        for topic in &self.topics.data {
+            let topic_id = topic.topic_id;
+            let mut response_topic = FetchResponseTopic {
+                topic_id: topic_id,
+                partitions: CompactArray { data: vec![] },
+                tagged_fields: TaggedFields(None),
+            };
+
+            if !topic_uuid_to_partitions.contains_key(&topic_id) {
+                let partition = FetchResponsePartition {
+                    partition_index: 0,
+                    error_code: 100, 
+                    high_watermark: 0,
+                    last_stable_offset: 0,
+                    log_start_offset: 0,
+                    aborted_transactions: CompactArray { data: vec![] },
+                    preferred_read_replica: -1,
+                    records: CompactArray { data: vec![] },
+                    tagged_fields: TaggedFields(None),
+                };
+
+                response_topic.partitions.data.push(partition);
+            }
+
+            response.responses.data.push(response_topic);
+            
+        }
+
+        Ok( KafkaBody::Response(Box::new(response)) )
+
+        // Err(BrokerError::UnknownError)
     }
 }

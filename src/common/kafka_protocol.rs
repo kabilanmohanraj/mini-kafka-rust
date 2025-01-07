@@ -512,6 +512,22 @@ pub struct ForgottenTopicData {
     pub tagged_fields: TaggedFields
 }
 
+impl FetchRequest {
+    pub fn empty() -> FetchRequest {
+        FetchRequest {
+            max_wait_ms: 0,
+            min_bytes: 0,
+            max_bytes: 0,
+            isolation_level: 0,
+            session_id: 0,
+            session_epoch: 0,
+            topics: CompactArray { data: vec![] },
+            forgotten_topics_data: CompactArray { data: vec![] },
+            rack_id: CompactString { data: "".to_string() },
+            tagged_fields: TaggedFields(None)
+        }
+    }
+}
 
 // Fetch Response (Version: 16) => throttle_time_ms error_code session_id [responses] TAG_BUFFER 
 //   throttle_time_ms => INT32
