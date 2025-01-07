@@ -1,23 +1,25 @@
-use crate::common::kafka_protocol::{ApiVersionsResponse, Cursor, DescribeTopicPartitionsResponse, PartitionMetadata, ResponseTopic};
+use crate::common::kafka_protocol::{ApiVersionsResponse, Cursor, DescribeTopicPartitionsResponse, FetchResponse, FetchResponseAbortedTransactions, FetchResponsePartition, FetchResponseTopic, PartitionMetadata, ResponseTopic};
 use crate::common::traits::Encodable;
 use crate::common::primitive_types::SVarInt;
 
 impl Encodable for ApiVersionsResponse {
     fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend(self.error_code.to_be_bytes());
-        bytes.extend(((self.api_versions.len() as i8) + 1).to_be_bytes());
+        let mut buf = Vec::new();
+        
+        buf.extend(self.error_code.to_be_bytes());
+        buf.extend(((self.api_versions.len() as i8) + 1).to_be_bytes());
 
         for api in &self.api_versions {
-            bytes.extend(api.api_key.to_be_bytes());
-            bytes.extend(api.min_version.to_be_bytes());
-            bytes.extend(api.max_version.to_be_bytes());
-            bytes.extend(api.tagged_fields.encode());
+            buf.extend(api.api_key.to_be_bytes());
+            buf.extend(api.min_version.to_be_bytes());
+            buf.extend(api.max_version.to_be_bytes());
+            buf.extend(api.tagged_fields.encode());
         }
 
-        bytes.extend(self.throttle_time_ms.to_be_bytes());
+        buf.extend(self.throttle_time_ms.to_be_bytes());
+        buf.extend(self.tagged_fields.encode());
 
-        bytes
+        buf
     }
 }
 
@@ -47,7 +49,7 @@ impl Encodable for ResponseTopic {
         buf.extend(self.error_code.to_be_bytes());
         buf.extend(self.name.encode());
 
-        buf.extend(self.topic_id);
+        buf.extend(self.topic_id.as_bytes());
         buf.push(self.is_internal as u8);
         buf.extend(self.partitions.encode());
         buf.extend(self.topic_authorized_operations.to_be_bytes());
@@ -114,6 +116,62 @@ impl Encodable for Cursor {
 
         buf.extend(self.topic_name.encode());
         buf.extend(self.partition_index.to_be_bytes());
+        buf.extend(self.tagged_fields.encode());
+
+        buf
+    }
+}
+
+impl Encodable for FetchResponse {
+    fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+
+        buf.extend(self.throttle_time_ms.to_be_bytes());
+        buf.extend(self.error_code.to_be_bytes());
+        buf.extend(self.session_id.to_be_bytes());
+        buf.extend(self.responses.encode());
+        buf.extend(self.tagged_fields.encode());
+
+        buf
+    }
+}
+
+impl Encodable for FetchResponseTopic {
+    fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+
+        buf.extend(self.topic_id.encode());
+        buf.extend(self.partitions.encode());
+        buf.extend(self.tagged_fields.encode());
+
+        buf
+    }
+}
+
+impl Encodable for FetchResponsePartition {
+    fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+
+        buf.extend(self.partition_index.to_be_bytes());
+        buf.extend(self.error_code.to_be_bytes());
+        buf.extend(self.high_watermark.to_be_bytes());
+        buf.extend(self.last_stable_offset.to_be_bytes());
+        buf.extend(self.log_start_offset.to_be_bytes());
+        buf.extend(self.aborted_transactions.encode());
+        buf.extend(self.preferred_read_replica.to_be_bytes());
+        buf.extend(self.records.encode());
+        buf.extend(self.tagged_fields.encode());
+
+        buf
+    }
+}
+
+impl Encodable for FetchResponseAbortedTransactions {
+    fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+
+        buf.extend(self.producer_id.to_be_bytes());
+        buf.extend(self.first_offset.to_be_bytes());
         buf.extend(self.tagged_fields.encode());
 
         buf

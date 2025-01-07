@@ -1,4 +1,4 @@
-use crate::common::kafka_protocol::{ApiVersionsRequest, DescribeTopicPartitionsRequest};
+use crate::common::kafka_protocol::{ApiVersionsRequest, DescribeTopicPartitionsRequest, FetchRequest};
 use crate::common::traits::Encodable;
 
 impl Encodable for ApiVersionsRequest {
@@ -25,6 +25,14 @@ impl Encodable for DescribeTopicPartitionsRequest {
         // }
         // buf.extend(self.tagged_fields.encode());
 
+        buf
+    }
+}
+
+impl Encodable for FetchRequest {
+    fn encode(&self) -> Vec<u8> {
+        let buf = Vec::new();
+        // FIXME:
         buf
     }
 }

@@ -3,14 +3,14 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 
-use crate::common::kafka_record::{PartitionRecord, RecordBatch, RecordValue};
 use crate::common::traits::Decodable;
-use crate::errors::BrokerError;
-use crate::api_versions::get_all_apis;
-use crate::common::kafka_protocol::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsRequest, DescribeTopicPartitionsResponse, KafkaBody, PartitionMetadata, ResponseTopic, TaggedFields};
 use crate::common::primitive_types::{CompactArray, CompactNullableString, CompactString};
+use crate::common::kafka_record::{PartitionRecord, RecordBatch, RecordValue};
+use crate::common::kafka_protocol::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, DescribeTopicPartitionsRequest, DescribeTopicPartitionsResponse, FetchRequest, FetchResponse, KafkaBody, PartitionMetadata, RequestContext, ResponseTopic, TaggedFields};
 
 use crate::broker::traits::RequestProcess;
+use crate::errors::BrokerError;
+use crate::api_versions::get_all_apis;
 
 use uuid::Uuid;
 
@@ -29,6 +29,8 @@ impl RequestProcess for KafkaBody {
 
 impl RequestProcess for DescribeTopicPartitionsRequest {
     fn process(&self) -> Result<KafkaBody, BrokerError> {
+        println!("Processing DescribeTopicPartitionsRequest...");
+
         // open cluster metadata file
         let metadata_file_path = Path::new("/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log");
         let mut metadata_file = File::open(&metadata_file_path).map_err(|_| BrokerError::UnknownError)?;
@@ -43,8 +45,12 @@ impl RequestProcess for DescribeTopicPartitionsRequest {
         let mut record_batches: Vec<RecordBatch> = Vec::new();
         let mut offset = 0;
 
+        let mut context_map: HashMap<String, String> = HashMap::new();
+        context_map.insert("is_metadata_request".to_string(), "true".to_string());
+        let request_context = &RequestContext::Some(context_map);
+
         while offset < buf.len() {
-            let (record_batch, batch_byte_len) = match RecordBatch::decode(&buf[offset..]) {
+            let (record_batch, batch_byte_len) = match RecordBatch::decode(&buf[offset..], request_context) {
                 Ok( (record_batch, batch_byte_len) ) => {
                     (record_batch, batch_byte_len)
                 }
@@ -92,6 +98,7 @@ impl RequestProcess for DescribeTopicPartitionsRequest {
             println!("Topic UUID: {}, #Partitions: {}", uuid, temp_partitions.len());
         }
 
+        // create response
         let mut response_topics: Vec<ResponseTopic> = Vec::new();
 
         for request_topic in &self.topics.data {
@@ -102,35 +109,24 @@ impl RequestProcess for DescribeTopicPartitionsRequest {
             let mut response_topic = ResponseTopic {
                 error_code: 3,
                 name: CompactNullableString {
-                    data: Some(CompactString { data: request_topic_name.clone() })
+                    data: Some( CompactString { data: request_topic_name.clone() } )
                 },
-                topic_id: request_topic_uuid.to_bytes_le(),
+                topic_id: request_topic_uuid,
                 is_internal: false,
                 partitions: CompactArray { data: vec![] },
                 topic_authorized_operations: 0,
-                tagged_fields: TaggedFields::empty()
+                tagged_fields: TaggedFields(None)
             };
             
             match topic_name_to_uuid.get(&request_topic_name) {
                 Some(topic_uuid) => {
                     response_topic.error_code = 0;
-                    response_topic.name.data = Some(CompactString { data: request_topic_name.clone() });
-                    response_topic.topic_id = topic_uuid.as_bytes().clone();
-
-                    match topic_uuid_to_partitions.get(topic_uuid) {
-                        Some(partitions) => {
-                            println!("Got {} partitions for topic: {}", partitions.len(), request_topic_name);
-                        }
-                        None => {
-                            println!("No partitions found for topic: {}", request_topic_name);
-                        }
-                    };
+                    response_topic.topic_id = topic_uuid.clone();
                     
                     match topic_uuid_to_partitions.get(topic_uuid) {
                         Some(partitions) => {
                             let mut response_partitions: Vec<PartitionMetadata> = Vec::new();
                             for partition in partitions {
-                                println!(" ======> hereeeeee");
                                 let response_partition = PartitionMetadata {
                                     error_code: 0,
                                     partition_index: partition.partition_id,
@@ -141,7 +137,7 @@ impl RequestProcess for DescribeTopicPartitionsRequest {
                                     eligible_leader_replicas: vec![],
                                     last_known_elr: vec![],
                                     offline_replicas: vec![],
-                                    tagged_fields: TaggedFields::empty(),
+                                    tagged_fields: TaggedFields(None),
                                 };
 
                                 response_partitions.push(response_partition);
@@ -166,7 +162,7 @@ impl RequestProcess for DescribeTopicPartitionsRequest {
                 throttle_time_ms: 0,
                 topics: CompactArray { data: response_topics },
                 next_cursor: None,
-                tagged_fields: TaggedFields::empty(),
+                tagged_fields: TaggedFields(None),
             }
         ));
 
@@ -176,6 +172,8 @@ impl RequestProcess for DescribeTopicPartitionsRequest {
 
 impl RequestProcess for ApiVersionsRequest {
     fn process(&self) -> Result<KafkaBody, BrokerError> {
+        println!("Processing ApiVersionsRequest...");
+
         // create response
         let response_body = KafkaBody::Response(Box::new(
             ApiVersionsResponse {
@@ -192,5 +190,20 @@ impl RequestProcess for ApiVersionsRequest {
         }));
 
         Ok(response_body)
+    }
+}
+
+impl RequestProcess for FetchRequest {
+    fn process(&self) -> Result<KafkaBody, BrokerError> {
+        println!("Processing FetchRequest...");
+
+        if self.topics.data.len() == 0 {
+            return Ok( KafkaBody::Response(Box::new(FetchResponse::empty())) )
+        }
+
+        // read record batches from log files
+        
+
+        Err(BrokerError::UnknownError)
     }
 }

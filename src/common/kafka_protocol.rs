@@ -1,7 +1,11 @@
+use std::collections::HashMap;
 use std::str;
+
+use uuid::Uuid;
 
 use crate::broker::traits::Request;
 use crate::errors::KafkaError;
+use super::kafka_record::Record;
 use super::primitive_types::{CompactArray, CompactNullableString, CompactString};
 use super::traits::{Decodable, Encodable, Codec};
 
@@ -37,7 +41,7 @@ impl KafkaMessage {
         let (bytes_temp, message_len) = self.encode_helper();
 
         // encode message size
-        buf.extend((message_len+1).to_be_bytes());
+        buf.extend((message_len).to_be_bytes());
         buf.extend(bytes_temp);
 
         buf
@@ -55,6 +59,7 @@ impl KafkaMessage {
 
         // encode message body
         let body_encoded = self.body.encode();
+        println!(" === Body encoded: {:?}", body_encoded);
         message_len += body_encoded.len() as i32;
         bytes.extend(body_encoded);
 
@@ -170,8 +175,7 @@ impl RequestHeader {
         };
         offset += client_id_len as usize;
 
-        // FIXME: Dynamically compute offset here
-        let (tagged_fields, tf_len) = match TaggedFields::decode(&bytes) {
+        let (tagged_fields, tf_len) = match TaggedFields::decode(&bytes, &RequestContext::None) {
             Ok((tagged_fields, tf_len)) => (tagged_fields, tf_len),
             Err(_) => return Err(KafkaError::DecodeError)
         };
@@ -237,6 +241,15 @@ impl Encodable for KafkaBody {
 }
 
 
+//
+// RequestContext
+//
+
+// this is a hashmap that will carry additional information about the request
+// acts like a JSON context object
+pub type RequestContext = Option<HashMap<String, String>>;
+
+
 // =======================================
 // API SPECIFIC SCHEMA ARE DEFINED BELOW
 // =======================================
@@ -252,7 +265,7 @@ impl Encodable for TaggedField {
 }
 
 impl Decodable for TaggedField {
-    fn decode(_buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(_buf: &[u8], _: &RequestContext) -> Result<(Self, usize), KafkaError> {
         Ok((TaggedField{}, 1))
     }
 }
@@ -262,10 +275,6 @@ pub struct TaggedFields(pub Option<CompactArray<TaggedField>>);
 impl TaggedFields {
     pub fn new(fields: Option<CompactArray<TaggedField>>) -> Self {
         TaggedFields(fields)
-    }
-
-    pub fn empty() -> Self {
-        TaggedFields(None)
     }
 }
 
@@ -287,7 +296,7 @@ impl Encodable for TaggedFields {
 }
 
 impl Decodable for TaggedFields {
-    fn decode(_buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(_buf: &[u8], _: &RequestContext) -> Result<(Self, usize), KafkaError> {
         Ok((TaggedFields(None), 1))
     }
 }
@@ -407,7 +416,7 @@ impl DescribeTopicPartitionsResponse {
                     name: CompactNullableString {
                         data: Some( CompactString { data: "test".to_string() } )
                     },
-                    topic_id: "00000000-0000-0000-0000-000000000000".parse::<uuid::Uuid>().unwrap().to_bytes_le(),
+                    topic_id: "00000000-0000-0000-0000-000000000000".parse::<uuid::Uuid>().unwrap(),
                     is_internal: false,
                     partitions: CompactArray { data: vec![] },
                     topic_authorized_operations: 10,
@@ -423,7 +432,7 @@ impl DescribeTopicPartitionsResponse {
 pub struct ResponseTopic {
     pub error_code: i16,
     pub name: CompactNullableString,
-    pub topic_id: [u8; 16],
+    pub topic_id: Uuid,
     pub is_internal: bool,
     pub partitions: CompactArray<PartitionMetadata>,
     pub topic_authorized_operations: i32,
@@ -448,10 +457,122 @@ pub struct PartitionMetadata {
 // Fetch API
 //
 
-pub struct FetchRequest {}
+// Fetch Request (Version: 16) => max_wait_ms min_bytes max_bytes isolation_level session_id session_epoch [topics] [forgotten_topics_data] rack_id TAG_BUFFER 
+//   max_wait_ms => INT32
+//   min_bytes => INT32
+//   max_bytes => INT32
+//   isolation_level => INT8
+//   session_id => INT32
+//   session_epoch => INT32
+//   topics => topic_id [partitions] TAG_BUFFER 
+//     topic_id => UUID
+//     partitions => partition current_leader_epoch fetch_offset last_fetched_epoch log_start_offset partition_max_bytes TAG_BUFFER 
+//       partition => INT32
+//       current_leader_epoch => INT32
+//       fetch_offset => INT64
+//       last_fetched_epoch => INT32
+//       log_start_offset => INT64
+//       partition_max_bytes => INT32
+//   forgotten_topics_data => topic_id [partitions] TAG_BUFFER 
+//     topic_id => UUID
+//     partitions => INT32
+//   rack_id => COMPACT_STRING
+pub struct FetchRequest {
+    pub max_wait_ms: i32,
+    pub min_bytes: i32,
+    pub max_bytes: i32,
+    pub isolation_level: i8,
+    pub session_id: i32,
+    pub session_epoch: i32,
+    pub topics: CompactArray<FetchRequestTopic>,
+    pub forgotten_topics_data: CompactArray<ForgottenTopicData>,
+    pub rack_id: CompactString,
+    pub tagged_fields: TaggedFields
+}
 
-pub struct FetchResponse {}
+pub struct FetchRequestTopic {
+    pub topic_id: Uuid,
+    pub partitions: CompactArray<FetchRequestPartition>,
+    pub tagged_fields: TaggedFields
+}
 
+pub struct FetchRequestPartition {
+    pub partition: i32,
+    pub current_leader_epoch: i32,
+    pub fetch_offset: i64,
+    pub last_fetched_epoch: i32,
+    pub log_start_offset: i64,
+    pub partition_max_bytes: i32,
+    pub tagged_fields: TaggedFields
+}
+
+pub struct ForgottenTopicData {
+    pub topic_id: Uuid,
+    pub partitions: CompactArray<i32>,
+    pub tagged_fields: TaggedFields
+}
+
+
+// Fetch Response (Version: 16) => throttle_time_ms error_code session_id [responses] TAG_BUFFER 
+//   throttle_time_ms => INT32
+//   error_code => INT16
+//   session_id => INT32
+//   responses => topic_id [partitions] TAG_BUFFER 
+//     topic_id => UUID
+//     partitions => partition_index error_code high_watermark last_stable_offset log_start_offset [aborted_transactions] preferred_read_replica records TAG_BUFFER 
+//       partition_index => INT32
+//       error_code => INT16
+//       high_watermark => INT64
+//       last_stable_offset => INT64
+//       log_start_offset => INT64
+//       aborted_transactions => producer_id first_offset TAG_BUFFER 
+//         producer_id => INT64
+//         first_offset => INT64
+//       preferred_read_replica => INT32
+//       records => COMPACT_RECORDS
+pub struct FetchResponse {
+    pub throttle_time_ms: i32,
+    pub error_code: i16,
+    pub session_id: i32,
+    pub responses: CompactArray<FetchResponseTopic>,
+    pub tagged_fields: TaggedFields
+}
+
+pub struct FetchResponseTopic {
+    pub topic_id: Uuid,
+    pub partitions: CompactArray<FetchResponsePartition>,
+    pub tagged_fields: TaggedFields
+}
+
+pub struct FetchResponsePartition {
+    pub partition_index: i32,
+    pub error_code: i16,
+    pub high_watermark: i64,
+    pub last_stable_offset: i64,
+    pub log_start_offset: i64,
+    pub aborted_transactions: CompactArray<FetchResponseAbortedTransactions>,
+    pub preferred_read_replica: i32,
+    pub records: CompactArray<Record>,
+    pub tagged_fields: TaggedFields
+}
+
+pub struct FetchResponseAbortedTransactions {
+    pub producer_id: i64,
+    pub first_offset: i64,
+    pub tagged_fields: TaggedFields
+}
+
+impl FetchResponse {
+    pub fn empty() -> FetchResponse {
+        FetchResponse {
+            throttle_time_ms: 0,
+            error_code: 0,
+            session_id: 0,
+            responses: CompactArray { data: vec![] },
+            tagged_fields: TaggedFields(None)
+        }
+    }
+}
 
 //
 // Produce

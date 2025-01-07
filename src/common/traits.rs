@@ -1,5 +1,7 @@
 use crate::errors::KafkaError;
 
+use super::kafka_protocol::RequestContext;
+
 //
 // Common traits
 //
@@ -10,7 +12,7 @@ pub trait Encodable {
 }
 
 pub trait Decodable {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError>
+    fn decode(buf: &[u8], request_context: &RequestContext) -> Result<(Self, usize), KafkaError>
     where
         Self: Sized;
 }

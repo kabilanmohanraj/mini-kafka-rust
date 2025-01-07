@@ -1,7 +1,7 @@
 
 use std::{io::{Read, Write}, net::TcpStream, sync::Arc};
 
-use crate::common::kafka_protocol::{ApiKey, ApiVersionsResponse, KafkaBody, KafkaHeader, KafkaMessage, ResponseHeader, TaggedFields};
+use crate::common::kafka_protocol::{ApiKey, ApiVersionsResponse, KafkaBody, KafkaHeader, KafkaMessage, RequestContext, ResponseHeader, TaggedFields};
 use crate::common::traits::Decodable;
 use crate::broker::broker::Broker;
 use crate::broker::traits::RequestProcess;
@@ -19,7 +19,7 @@ pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
         }
 
         // decode request sent by the client
-        let request = match KafkaMessage::decode(&buf[..bytes_read]) {
+        let request = match KafkaMessage::decode(&buf[..bytes_read], &RequestContext::None) {
             Ok((kmessage, _)) => kmessage,
             Err(_) => {
                 println!("Error decoding request");
@@ -79,7 +79,6 @@ pub fn process_request(mut stream: TcpStream, broker: Arc<Broker>) {
                     break;
                 }
             };
-
         }
 
         // encode the response

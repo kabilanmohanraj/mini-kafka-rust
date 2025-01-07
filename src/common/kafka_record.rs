@@ -1,13 +1,13 @@
 use std::result::Result::Ok;
 
 use crate::errors::KafkaError;
-
-use super::{kafka_protocol::TaggedFields, primitive_types::{CompactArray, CompactString, SVarInt, UnsignedVarInt}, traits::{Decodable, Encodable}};
+use super::{kafka_protocol::{RequestContext, TaggedFields}, primitive_types::{CompactArray, CompactString, SVarInt, UnsignedVarInt}, traits::{Decodable, Encodable}};
 
 pub enum RecordValue {
     TopicRecord(TopicRecord),
     PartitionRecord(PartitionRecord),
     FeatureLevelRecord(FeatureLevelRecord),
+    RawBytesRecord(RawBytesRecord),
 }
 
 impl Encodable for RecordValue {
@@ -16,41 +16,58 @@ impl Encodable for RecordValue {
             RecordValue::TopicRecord(topic_record) => topic_record.encode(),
             RecordValue::PartitionRecord(partition_record) => partition_record.encode(),
             RecordValue::FeatureLevelRecord(feature_level_record) => feature_level_record.encode(),
+            RecordValue::RawBytesRecord(raw_bytes) => raw_bytes.data.to_vec(),
         }
     }
 }
 
 impl Decodable for RecordValue {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(buf: &[u8], request_context: &RequestContext) -> Result<(Self, usize), KafkaError> {
         let mut offset = 0;
 
-        // peek at the second bye to determine the record type
-        let second_byte: u8 = *buf.get(offset+1).ok_or(KafkaError::DecodeError)?;
-        let record_type = second_byte as i8;
+        // Helper function to decode metadata records
+        let decode_metadata_record = |record_type: i8, buf: &[u8], request_context: &RequestContext| -> Result<(Self, usize), KafkaError> {
+            match record_type {
+                2 => {
+                    let (topic_record, topic_record_size) =
+                        TopicRecord::decode(buf, request_context).map_err(|_| KafkaError::DecodeError)?;
+                    Ok( (RecordValue::TopicRecord(topic_record), topic_record_size) )
+                }
+                3 => {
+                    let (partition_record, partition_record_size) =
+                        PartitionRecord::decode(buf, request_context).map_err(|_| KafkaError::DecodeError)?;
+                    Ok( (RecordValue::PartitionRecord(partition_record), partition_record_size) )
+                }
+                12 => {
+                    let (feature_level_record, feature_level_record_size) =
+                        FeatureLevelRecord::decode(buf, request_context).map_err(|_| KafkaError::DecodeError)?;
+                    Ok( (RecordValue::FeatureLevelRecord(feature_level_record), feature_level_record_size) )
+                }
+                _ => {
+                    println!("Unrecognized metadata record type: {}", record_type);
+                    Err(KafkaError::DecodeError)
+                }
+            }
+        };
 
-        match record_type {
-            2 => {
-                let (topic_record, topic_record_size) = TopicRecord::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
-                offset += topic_record_size;
-                Ok((RecordValue::TopicRecord(topic_record), offset))
-            },
-            3 => {
-                let (partition_record, partition_record_size) = PartitionRecord::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
-                offset += partition_record_size;
-                Ok((RecordValue::PartitionRecord(partition_record), offset))
-            },
-            12 => {
-                let (feature_level_record, feature_level_record_size) = FeatureLevelRecord::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
-                offset += feature_level_record_size;
-                Ok((RecordValue::FeatureLevelRecord(feature_level_record), offset))
-            },
-            _ => {
-                println!("Invalid record value type: {}", record_type);
-                Err(KafkaError::DecodeError)
+        if let Some(context_map) = request_context.as_ref() {
+            if context_map.get("is_metadata_request") == Some(&"true".to_string()) {
+                let second_byte: u8 = *buf.get(offset + 1).ok_or(KafkaError::DecodeError)?;
+                let record_type = second_byte as i8;
+
+                let (record_value, size) = decode_metadata_record(record_type, &buf[offset..], request_context)?;
+                offset += size;
+                return Ok( (record_value, offset) );
             }
         }
+
+        // Decode as raw bytes if not a metadata request
+        let (record_value, rc_len) = RawBytesRecord::decode(&buf[offset..], request_context).map_err(|_| KafkaError::DecodeError)?;
+        offset += rc_len;
+        Ok((RecordValue::RawBytesRecord(record_value), offset))
     }
 }
+
 
 pub struct RecordHeader {
     pub header_key: CompactString,
@@ -68,11 +85,11 @@ impl Encodable for RecordHeader {
 }
 
 impl Decodable for RecordHeader {
-    fn decode(buf: &[u8]) -> Result<(RecordHeader, usize), KafkaError> {
+    fn decode(buf: &[u8], _: &RequestContext) -> Result<(RecordHeader, usize), KafkaError> {
         println!("  Decoding record header...");
         let mut offset = 0;
 
-        let (header_key, header_key_size) = CompactString::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (header_key, header_key_size) = CompactString::decode(&buf[offset..], &RequestContext::None).map_err(|_| KafkaError::DecodeError)?;
         offset += header_key_size;
 
         let value = &buf[offset..];
@@ -85,7 +102,7 @@ impl Decodable for RecordHeader {
     }
 }
 
-pub struct MetadataRecord {
+pub struct Record {
     pub attributes: i8,
     pub timestamp_delta: SVarInt,
     pub offset_delta: SVarInt,
@@ -94,7 +111,7 @@ pub struct MetadataRecord {
     pub headers: Vec<RecordHeader>,
 }
 
-impl Encodable for MetadataRecord {
+impl Encodable for Record {
     fn encode(&self) -> Vec<u8> {
         let mut temp_buf: Vec<u8> = Vec::new();
 
@@ -133,9 +150,9 @@ impl Encodable for MetadataRecord {
     }
 }
 
-impl Decodable for MetadataRecord {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
-        println!("  Decoding metadata record...");
+impl Decodable for Record {
+    fn decode(buf: &[u8], request_context: &RequestContext) -> Result<(Self, usize), KafkaError> {
+        println!("  Decoding record...");
         let mut offset = 0;
 
         macro_rules! read_bytes {
@@ -150,22 +167,24 @@ impl Decodable for MetadataRecord {
             }};
         }
 
-        let (record_size, record_size_byte_len) = SVarInt::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let empty_request_context = &RequestContext::None;
+
+        let (record_size, record_size_byte_len) = SVarInt::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += record_size_byte_len;
         println!("  Record size: {}", record_size.data);
 
         let attributes = i8::from_be_bytes(read_bytes!(1).try_into().map_err(|_| KafkaError::DecodeError)?);
         println!("  Attributes: {}", attributes);
 
-        let (timestamp_delta, td_byte_len) = SVarInt::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (timestamp_delta, td_byte_len) = SVarInt::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += td_byte_len;
         println!("  Timestamp delta: {}", timestamp_delta.data);
 
-        let (offset_delta, od_byte_len) = SVarInt::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (offset_delta, od_byte_len) = SVarInt::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += od_byte_len;
         println!("  Offset delta: {}", offset_delta.data);
 
-        let (key_size, key_size_byte_len) = SVarInt::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (key_size, key_size_byte_len) = SVarInt::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += key_size_byte_len;
         println!("  Key size: {}, {}", key_size.data, key_size_byte_len);
         let key = if key_size.data == -1 { // -1 means null
@@ -176,25 +195,25 @@ impl Decodable for MetadataRecord {
             Some(key.to_vec())
         };
 
-        let (value_size, value_size_byte_len) = SVarInt::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (value_size, value_size_byte_len) = SVarInt::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += value_size_byte_len;
-        println!("  Value size: {}, {}", value_size.data, value_size_byte_len);
+        println!("  Value size: {}, #bytes: {}", value_size.data, value_size_byte_len);
 
-        let (value, _) = RecordValue::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (value, _) = RecordValue::decode(&buf[offset..offset+value_size.data as usize], request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += value_size.data as usize;
 
-        let (headers_size, hs_byte_len) = UnsignedVarInt::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (headers_size, hs_byte_len) = UnsignedVarInt::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += hs_byte_len;
         println!("  Headers size: {}, {}", headers_size.data, hs_byte_len);
 
         let mut headers = Vec::new();
         for _ in 0..headers_size.data {
-            let (header, header_size) = RecordHeader::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+            let (header, header_size) = RecordHeader::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
             offset += header_size;
             headers.push(header);
         }
 
-        Ok((MetadataRecord {
+        Ok((Record {
             attributes,
             timestamp_delta,
             offset_delta,
@@ -224,7 +243,7 @@ impl Encodable for RecordValueMetadata {
 }
 
 impl Decodable for RecordValueMetadata {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(buf: &[u8], _: &RequestContext) -> Result<(Self, usize), KafkaError> {
         let mut offset = 0;
         macro_rules! read_bytes {
             ($size:expr) => {{
@@ -285,20 +304,22 @@ impl Encodable for TopicRecord {
 }
 
 impl Decodable for TopicRecord {
-    fn decode(buf: &[u8]) -> Result<(TopicRecord, usize), KafkaError> {
+    fn decode(buf: &[u8], _: &RequestContext) -> Result<(TopicRecord, usize), KafkaError> {
         println!("      Decoding topic record...");
         let mut offset = 0;
 
-        let (value_metadata, vm_byte_len) = RecordValueMetadata::decode(buf).map_err(|_| KafkaError::DecodeError)?;
+        let empty_request_context = &RequestContext::None;
+
+        let (value_metadata, vm_byte_len) = RecordValueMetadata::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += vm_byte_len;
 
-        let (topic_name, topic_name_size) = CompactString::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (topic_name, topic_name_size) = CompactString::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += topic_name_size;
 
         let topic_id = uuid::Uuid::from_slice(&buf[offset..offset+16]).map_err(|_| KafkaError::DecodeError)?;
         offset += 16;
 
-        let (tagged_fields, tf_byte_len) = TaggedFields::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (tagged_fields, tf_byte_len) = TaggedFields::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += tf_byte_len;
 
         Ok((TopicRecord {
@@ -385,7 +406,7 @@ impl Encodable for PartitionRecord {
 }
 
 impl Decodable for PartitionRecord {
-    fn decode(buf: &[u8]) -> Result<(PartitionRecord, usize), KafkaError> {
+    fn decode(buf: &[u8], _: &RequestContext) -> Result<(PartitionRecord, usize), KafkaError> {
         println!("      Decoding partition record...");
         let mut offset = 0;
 
@@ -401,7 +422,9 @@ impl Decodable for PartitionRecord {
             }};
         }
 
-        let (value_metadata, vm_byte_len) = RecordValueMetadata::decode(buf).map_err(|_| KafkaError::DecodeError)?;
+        let empty_request_context = &RequestContext::None;
+
+        let (value_metadata, vm_byte_len) = RecordValueMetadata::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += vm_byte_len;
 
         let partition_id = i32::from_be_bytes(read_bytes!(4).try_into().map_err(|_| KafkaError::DecodeError)?);
@@ -409,26 +432,26 @@ impl Decodable for PartitionRecord {
         let topic_id = uuid::Uuid::from_slice(&buf[offset..offset+16]).map_err(|_| KafkaError::DecodeError)?;
         offset += 16;
 
-        let (replica_array, ra_byte_len) = CompactArray::<i32>::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (replica_array, ra_byte_len) = CompactArray::<i32>::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += ra_byte_len;
 
-        let (isr_array, isa_byte_len) = CompactArray::<i32>::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (isr_array, isa_byte_len) = CompactArray::<i32>::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += isa_byte_len;
 
-        let (removing_replicas_array, rra_byte_len) = CompactArray::<i32>::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (removing_replicas_array, rra_byte_len) = CompactArray::<i32>::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += rra_byte_len;
 
-        let (adding_replicas_array, ara_byte_len) = CompactArray::<i32>::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (adding_replicas_array, ara_byte_len) = CompactArray::<i32>::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += ara_byte_len;
 
         let leader = i32::from_be_bytes(read_bytes!(4).try_into().map_err(|_| KafkaError::DecodeError)?);
         let leader_epoch = i32::from_be_bytes(read_bytes!(4).try_into().map_err(|_| KafkaError::DecodeError)?);
         let partition_epoch = i32::from_be_bytes(read_bytes!(4).try_into().map_err(|_| KafkaError::DecodeError)?);
 
-        let (directories, dir_byte_len) = CompactArray::<uuid::Uuid>::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (directories, dir_byte_len) = CompactArray::<uuid::Uuid>::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += dir_byte_len;
 
-        let (tagged_fields, tf_byte_len) = TaggedFields::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (tagged_fields, tf_byte_len) = TaggedFields::decode(&buf[offset..], empty_request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += tf_byte_len;
 
         Ok((PartitionRecord {
@@ -485,7 +508,7 @@ impl Encodable for FeatureLevelRecord {
 }
 
 impl Decodable for FeatureLevelRecord {
-    fn decode(buf: &[u8]) -> Result<(FeatureLevelRecord, usize), KafkaError> {
+    fn decode(buf: &[u8], request_context: &RequestContext) -> Result<(FeatureLevelRecord, usize), KafkaError> {
         println!("      Decoding feature level record...");
         let mut offset = 0;
 
@@ -501,18 +524,21 @@ impl Decodable for FeatureLevelRecord {
             }};
         }
 
-        let (value_metadata, vm_byte_len) = RecordValueMetadata::decode(buf).map_err(|_| KafkaError::DecodeError)?;
+        let (value_metadata, vm_byte_len) = RecordValueMetadata::decode(&buf[offset..], request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += vm_byte_len;
 
-        let (name, name_size) = CompactString::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        println!("      Offset: {} | Buffer remaining: {}", offset, buf[offset..].len());
+        let (name, name_size) = CompactString::decode(&buf[offset..], request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += name_size;
+        println!("      Name: {}", name.data);
 
         let feature_level = i16::from_be_bytes(read_bytes!(2).try_into().map_err(|_| KafkaError::DecodeError)?);
+        println!("      Feature level: {}", feature_level);
 
         // let (num_tagged_fields, tf_byte_len) = UnsignedVarInt::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
         // offset += tf_byte_len;
 
-        let (tagged_fields, tf_byte_len) = TaggedFields::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+        let (tagged_fields, tf_byte_len) = TaggedFields::decode(&buf[offset..], request_context).map_err(|_| KafkaError::DecodeError)?;
         offset += tf_byte_len;
 
         Ok((FeatureLevelRecord {
@@ -521,6 +547,27 @@ impl Decodable for FeatureLevelRecord {
             feature_level,
             tagged_fields,
         }, offset))
+    }
+}
+
+
+// RawBytesRecord
+pub struct RawBytesRecord {
+    pub data: Vec<u8>,
+}
+
+impl Encodable for RawBytesRecord {
+    fn encode(&self) -> Vec<u8> {
+        self.data.to_vec()
+    }
+}
+
+impl Decodable for RawBytesRecord {
+    fn decode(buf: &[u8], _: &RequestContext) -> Result<(RawBytesRecord, usize), KafkaError> {
+
+        Ok((RawBytesRecord {
+            data: buf.to_vec(),
+        }, buf.len()))
     }
 }
 
@@ -560,7 +607,7 @@ pub struct RecordBatch {
     pub producer_id: i64,
     pub producer_epoch: i16,
     pub base_sequence: i32,
-    pub records: Vec<MetadataRecord>,
+    pub records: Vec<Record>,
 }
 
 impl Encodable for RecordBatch {
@@ -597,7 +644,7 @@ impl Encodable for RecordBatch {
 }
 
 impl Decodable for RecordBatch {
-    fn decode(buf: &[u8]) -> Result<(RecordBatch, usize), KafkaError> {
+    fn decode(buf: &[u8], request_context: &RequestContext) -> Result<(RecordBatch, usize), KafkaError> {
         let mut offset = 0;
 
         macro_rules! read_bytes {
@@ -654,12 +701,14 @@ impl Decodable for RecordBatch {
         // TODO: Use this to read multiple record batches simultaneously from the file
         // batch_length -= 49; // adjust batch length by subtracting the length of all the fields above
         println!("Decoding {} records...", num_records);
-        let mut records: Vec<MetadataRecord> = Vec::new();
+        let mut records: Vec<Record> = Vec::new();
         for _ in 0..num_records {
-            let (record, record_size) = MetadataRecord::decode(&buf[offset..]).map_err(|_| KafkaError::DecodeError)?;
+            let (record, record_size) = Record::decode(&buf[offset..], request_context).map_err(|_| KafkaError::DecodeError)?;
             offset += record_size;
             records.push(record);
         }
+
+        println!("Decoded {} records", records.len());
 
         Ok((RecordBatch {
             base_offset,
@@ -677,3 +726,4 @@ impl Decodable for RecordBatch {
         }, offset))
     }
 }
+

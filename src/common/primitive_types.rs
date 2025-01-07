@@ -1,6 +1,6 @@
 use crate::errors::KafkaError;
 
-use super::traits::{Encodable, Decodable};
+use super::{kafka_protocol::RequestContext, traits::{Decodable, Encodable}};
 
 //
 // VAR_INT
@@ -31,8 +31,8 @@ impl Encodable for SVarInt {
 }
 
 impl Decodable for SVarInt {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
-        match UnsignedVarInt::decode(buf) {
+    fn decode(buf: &[u8], request_context: &RequestContext) -> Result<(Self, usize), KafkaError> {
+        match UnsignedVarInt::decode(buf, request_context) {
             Ok( (varint, varint_byte_length) ) => {
                 let mut integer = varint.data as i32;
 
@@ -108,7 +108,7 @@ impl Encodable for UnsignedVarInt {
 }
 
 impl Decodable for UnsignedVarInt {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(buf: &[u8], _: &RequestContext) -> Result<(Self, usize), KafkaError> {
         let mut chunk_arr: Vec<u8> = Vec::new();
 
         let mut i = 0;
@@ -173,10 +173,10 @@ impl Encodable for CompactString {
 }
 
 impl Decodable for CompactString {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(buf: &[u8], request_context: &RequestContext) -> Result<(Self, usize), KafkaError> {
         let mut byte_offset = 0;
 
-        match UnsignedVarInt::decode(buf) {
+        match UnsignedVarInt::decode(buf, request_context) {
             Ok( (varint, varint_byte_length) ) => {
                 byte_offset += varint_byte_length;
                 let data_length = varint.data - 1;
@@ -188,7 +188,8 @@ impl Decodable for CompactString {
                 }
 
                 if buf.len() < byte_offset + data_length as usize {
-                    println!("Buffer does not contain enough data for the string");
+                    println!("Buffer Length: {} | Byte offset + Datalength: {}", buf.len(), byte_offset + data_length as usize);
+                    println!("Buffer does not contain enough data for CompactString");
                     return Err(KafkaError::DecodeError);
                 }
 
@@ -248,7 +249,7 @@ impl Encodable for NullableString {
 }
 
 impl Decodable for NullableString {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(buf: &[u8], _: &RequestContext) -> Result<(Self, usize), KafkaError> {
         // get length prefix
         if buf.len() < 2 {
             println!("Buffer too short to decode NullableString");
@@ -309,11 +310,11 @@ impl Encodable for CompactNullableString {
 }
 
 impl Decodable for CompactNullableString {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(buf: &[u8], request_context: &RequestContext) -> Result<(Self, usize), KafkaError> {
 
         let mut byte_offset = 0;
 
-        match UnsignedVarInt::decode(buf) {
+        match UnsignedVarInt::decode(buf, request_context) {
             Ok( (varint,varint_byte_length) ) => {
                 byte_offset += varint_byte_length;
                 let data_length = varint.data - 1;
@@ -329,7 +330,7 @@ impl Decodable for CompactNullableString {
                     return Err(KafkaError::DecodeError);
                 }
 
-                let data = CompactString::decode(&buf[byte_offset..byte_offset + data_length as usize])?;
+                let data = CompactString::decode(&buf[byte_offset..byte_offset + data_length as usize], request_context)?;
                 byte_offset += data.1;
 
                 return Ok((CompactNullableString {
@@ -379,19 +380,18 @@ impl<T: Encodable> Encodable for CompactArray<T> {
     }
 }
 
-// TODO: Placeholder implementation
 impl<T: Decodable> Decodable for CompactArray<T> {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(buf: &[u8], request_context: &RequestContext) -> Result<(Self, usize), KafkaError> {
         let mut byte_offset = 0;
 
-        match UnsignedVarInt::decode(buf) {
+        match UnsignedVarInt::decode(buf, request_context) {
             Ok( (varint,varint_byte_length) ) => {
                 byte_offset += varint_byte_length;
                 let array_length = varint.data - 1;
 
                 let mut array: Vec<T> = Vec::new();
                 for _ in 0..array_length {
-                    let item = T::decode(&buf[byte_offset..])?;
+                    let item = T::decode(&buf[byte_offset..], request_context)?;
                     byte_offset += item.1;
                     array.push(item.0);
                 }
@@ -419,7 +419,7 @@ impl Encodable for i32 {
 }
 
 impl Decodable for i32 {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(buf: &[u8], _: &RequestContext) -> Result<(Self, usize), KafkaError> {
         if buf.len() < 4 {
             println!("Buffer too short to decode i32");
             return Err(KafkaError::DecodeError);
@@ -440,7 +440,7 @@ impl Encodable for uuid::Uuid {
 }
 
 impl Decodable for uuid::Uuid {
-    fn decode(buf: &[u8]) -> Result<(Self, usize), KafkaError> {
+    fn decode(buf: &[u8], _: &RequestContext) -> Result<(Self, usize), KafkaError> {
         if buf.len() < 16 {
             println!("Buffer too short to decode UUID");
             return Err(KafkaError::DecodeError);
