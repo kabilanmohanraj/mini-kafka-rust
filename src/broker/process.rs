@@ -1,3 +1,4 @@
+use core::num;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -201,6 +202,7 @@ impl RequestProcess for FetchRequest {
             return Ok( KafkaBody::Response(Box::new(FetchResponse::empty())) )
         }
 
+        // FIXME: Implement OOP for record batch reading
         // read record batches from log files
         // open cluster metadata file
         let metadata_file_path = Path::new("/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log");
@@ -213,7 +215,7 @@ impl RequestProcess for FetchRequest {
         println!("Initial Buffer length: {:?}", buf.len());
         println!("Decoding record batch...");
 
-        let mut record_batches: Vec<RecordBatch> = Vec::new();
+        let mut metadata_record_batches: Vec<RecordBatch> = Vec::new();
         let mut offset = 0;
 
         let mut context_map: HashMap<String, String> = HashMap::new();
@@ -230,12 +232,12 @@ impl RequestProcess for FetchRequest {
                 }
             };
 
-            record_batches.push(record_batch);
+            metadata_record_batches.push(record_batch);
             offset += batch_byte_len;
         }
 
         // iterate over record values from record batches
-        let topic_name_to_uuid: HashMap<String, Uuid> = record_batches
+        let topic_name_to_uuid: HashMap<String, Uuid> = metadata_record_batches
             .iter()
             .flat_map(|record_batch| {
                 record_batch.records.iter().filter_map(|metadata_record| {
@@ -254,7 +256,7 @@ impl RequestProcess for FetchRequest {
         }
 
         let mut topic_uuid_to_partitions: HashMap<Uuid, Vec<&PartitionRecord>> = HashMap::new();
-        for record_batch in &record_batches {
+        for record_batch in &metadata_record_batches {
             for metadata_record in &record_batch.records {
                 if let RecordValue::PartitionRecord(partition_record) = &metadata_record.value {
                     topic_uuid_to_partitions
@@ -294,6 +296,69 @@ impl RequestProcess for FetchRequest {
                 };
 
                 response_topic.partitions.data.push(partition);
+            } else {
+                // topic exists
+                // go to the topic partition folder
+                // find the log file and read the records
+                // construct the response
+
+                // find topic name from UUID
+                let topic_name = topic_name_to_uuid.iter()
+                    .find(|(_, &uuid)| uuid == topic_id)
+                    .map(|(name, _)| name)
+                    .unwrap();
+
+                // find number of available partitions
+                let num_partitions = topic_uuid_to_partitions.get(&topic_id).unwrap().len();
+
+                for i in 0..num_partitions {
+                    let log_file_path_str = format!("/tmp/kraft-combined-logs/{}/00000000000000000000.log", topic_name.to_owned()+"-"+&i.to_string());
+                    let log_file_path = Path::new(&log_file_path_str);
+                    let mut log_file = File::open(log_file_path).map_err(|_| BrokerError::UnknownError)?;
+
+                    // decode log file
+                    let mut log_buf: Vec<u8> = Vec::new();
+                    log_file.read_to_end(&mut log_buf).map_err(|_| BrokerError::UnknownError)?;
+
+                    println!("Initial Buffer length: {:?}", log_buf.len());
+                    println!("Decoding record batch...");
+
+                    let mut record_batches: Vec<RecordBatch> = Vec::new();
+                    let mut offset = 0;
+
+                    let mut context_map: HashMap<String, String> = HashMap::new();
+                    context_map.insert("is_metadata_request".to_string(), "false".to_string());
+                    let request_context = &RequestContext::Some(context_map);
+
+                    while offset < log_buf.len() {
+                        let (record_batch, batch_byte_len) = match RecordBatch::decode(&log_buf[offset..], request_context) {
+                            Ok( (record_batch, batch_byte_len) ) => {
+                                (record_batch, batch_byte_len)
+                            }
+                            Err(_) => {
+                                return Err(BrokerError::UnknownError);
+                            }
+                        };
+
+                        record_batches.push(record_batch);
+                        offset += batch_byte_len;
+                    }
+
+                    let partition = FetchResponsePartition {
+                        partition_index: i as i32,
+                        error_code: 0, 
+                        high_watermark: 0,
+                        last_stable_offset: 0,
+                        log_start_offset: 0,
+                        aborted_transactions: CompactArray { data: vec![] },
+                        preferred_read_replica: -1,
+                        records: CompactArray { data: vec![] },
+                        tagged_fields: TaggedFields(None),
+                    };
+                    
+                    response_topic.partitions.data.push(partition);
+                }
+
             }
 
             response.responses.data.push(response_topic);
