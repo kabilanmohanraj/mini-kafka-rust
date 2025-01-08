@@ -307,12 +307,20 @@ impl RequestProcess for FetchRequest {
                     .map(|(name, _)| name)
                     .unwrap();
 
-                println!(" === \nTopic Name: {:?}\n =====  \n", topic_name);
-
                 // find number of available partitions
                 let num_partitions = topic_uuid_to_partitions.get(&topic_id).unwrap().len();
 
+                let mut partitions_to_fetch: Vec<i32> = Vec::new();
+                for p in &topic.partitions.data {
+                    partitions_to_fetch.push(p.partition);
+                }
+
                 for i in 0..num_partitions {
+
+                    if !partitions_to_fetch.contains(&(i as i32)) {
+                        continue;
+                    }
+
                     let log_file_path_str = format!("/tmp/kraft-combined-logs/{}/00000000000000000000.log", topic_name.to_owned()+"-"+&i.to_string());
                     let log_file_path = Path::new(&log_file_path_str);
                     let mut log_file = File::open(log_file_path).map_err(|_| BrokerError::UnknownError)?;
@@ -357,6 +365,7 @@ impl RequestProcess for FetchRequest {
                         tagged_fields: TaggedFields(None),
                     };
 
+                    println!("\n\n\n\n\n\n\n Number of record batches: {:?} \n\n\n\n\n\n", topic_record_batches.len());
                     if topic_record_batches.len() > 0 {
                         for record_batch in topic_record_batches {
                             partition.records.data.push(record_batch);
