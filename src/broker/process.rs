@@ -1,4 +1,3 @@
-use core::num;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -308,6 +307,8 @@ impl RequestProcess for FetchRequest {
                     .map(|(name, _)| name)
                     .unwrap();
 
+                println!(" === \nTopic Name: {:?}\n =====  \n", topic_name);
+
                 // find number of available partitions
                 let num_partitions = topic_uuid_to_partitions.get(&topic_id).unwrap().len();
 
@@ -320,10 +321,10 @@ impl RequestProcess for FetchRequest {
                     let mut log_buf: Vec<u8> = Vec::new();
                     log_file.read_to_end(&mut log_buf).map_err(|_| BrokerError::UnknownError)?;
 
-                    println!("Initial Buffer length: {:?}", log_buf.len());
+                    println!("Initial Log Buffer length: {:?}", log_buf.len());
                     println!("Decoding record batch...");
 
-                    let mut record_batches: Vec<RecordBatch> = Vec::new();
+                    let mut topic_record_batches: Vec<RecordBatch> = Vec::new();
                     let mut offset = 0;
 
                     let mut context_map: HashMap<String, String> = HashMap::new();
@@ -340,11 +341,11 @@ impl RequestProcess for FetchRequest {
                             }
                         };
 
-                        record_batches.push(record_batch);
+                        topic_record_batches.push(record_batch);
                         offset += batch_byte_len;
                     }
 
-                    let partition = FetchResponsePartition {
+                    let mut partition = FetchResponsePartition {
                         partition_index: i as i32,
                         error_code: 0, 
                         high_watermark: 0,
@@ -355,8 +356,15 @@ impl RequestProcess for FetchRequest {
                         records: CompactArray { data: vec![] },
                         tagged_fields: TaggedFields(None),
                     };
-                    
+
+                    if topic_record_batches.len() > 0 {
+                        for record_batch in topic_record_batches {
+                            partition.records.data.push(record_batch);
+                        }
+                    }
+
                     response_topic.partitions.data.push(partition);
+
                 }
 
             }

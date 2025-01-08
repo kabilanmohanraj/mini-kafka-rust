@@ -1,4 +1,5 @@
 use std::result::Result::Ok;
+use crc32c::crc32c;
 
 use crate::errors::KafkaError;
 use super::{kafka_protocol::{RequestContext, TaggedFields}, primitive_types::{CompactArray, CompactString, SVarInt, UnsignedVarInt}, traits::{Decodable, Encodable}};
@@ -599,7 +600,7 @@ pub struct RecordBatch {
     pub base_offset: i64,
     pub partition_leader_epoch: i32,
     pub magic: i8,
-    pub crc: i32,
+    pub crc: u32,
     pub attributes: i16,
     pub last_offset_delta: i32,
     pub base_timestamp: i64,
@@ -613,29 +614,34 @@ pub struct RecordBatch {
 impl Encodable for RecordBatch {
     fn encode(&self) -> Vec<u8> {
         // collect all the fields into a temporary buffer
+        let mut after_crc_buf: Vec<u8> = Vec::new();
+        after_crc_buf.extend(&self.attributes.to_be_bytes());
+        after_crc_buf.extend(&self.last_offset_delta.to_be_bytes());
+        after_crc_buf.extend(&self.base_timestamp.to_be_bytes());
+        after_crc_buf.extend(&self.max_timestamp.to_be_bytes());
+        after_crc_buf.extend(&self.producer_id.to_be_bytes());
+        after_crc_buf.extend(&self.producer_epoch.to_be_bytes());
+        after_crc_buf.extend(&self.base_sequence.to_be_bytes());
+
+        // encode records
+        after_crc_buf.extend(&(self.records.len() as i32).to_be_bytes());
+        for record in &self.records {
+            after_crc_buf.extend(record.encode());
+        }
+
+        // compute CRC
+        let crc = crc32c(&after_crc_buf);
+
+        // collect all the fields into a temporary buffer
         let mut temp_buf: Vec<u8> = Vec::new();
         temp_buf.extend(&self.partition_leader_epoch.to_be_bytes());
         temp_buf.extend(&self.magic.to_be_bytes());
-        temp_buf.extend(&self.crc.to_be_bytes());
-        temp_buf.extend(&self.attributes.to_be_bytes());
-        temp_buf.extend(&self.last_offset_delta.to_be_bytes());
-        temp_buf.extend(&self.base_timestamp.to_be_bytes());
-        temp_buf.extend(&self.max_timestamp.to_be_bytes());
-        temp_buf.extend(&self.producer_id.to_be_bytes());
-        temp_buf.extend(&self.producer_epoch.to_be_bytes());
-        temp_buf.extend(&self.base_sequence.to_be_bytes());
+        temp_buf.extend(&crc.to_be_bytes());
+        temp_buf.extend(&after_crc_buf);
 
-        // encode records
-        temp_buf.extend(&(self.records.len() as i32).to_be_bytes());
-        for record in &self.records {
-            temp_buf.extend(record.encode());
-        }
-
-        // finally, encode the batch and append the temporary buffer
+        // finally, encode the batch length and append the temporary buffer
         let mut buf = Vec::new();
         buf.extend(&self.base_offset.to_be_bytes());
-
-        // encode batch length
         buf.extend(&(temp_buf.len() as i32).to_be_bytes());
         buf.extend(&temp_buf);
         
@@ -671,7 +677,7 @@ impl Decodable for RecordBatch {
         let magic = i8::from_be_bytes(read_bytes!(1).try_into().map_err(|_| KafkaError::DecodeError)?);
         println!("Magic: {}", magic);
 
-        let crc = i32::from_be_bytes(read_bytes!(4).try_into().map_err(|_| KafkaError::DecodeError)?);
+        let crc = u32::from_be_bytes(read_bytes!(4).try_into().map_err(|_| KafkaError::DecodeError)?);
         println!("CRC: {}", crc);
 
         let attributes = i16::from_be_bytes(read_bytes!(2).try_into().map_err(|_| KafkaError::DecodeError)?);

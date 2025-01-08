@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::broker::traits::Request;
 use crate::errors::KafkaError;
-use super::kafka_record::Record;
+use super::kafka_record::RecordBatch;
 use super::primitive_types::{CompactArray, CompactNullableString, CompactString};
 use super::traits::{Decodable, Encodable, Codec};
 
@@ -59,7 +59,7 @@ impl KafkaMessage {
 
         // encode message body
         let body_encoded = self.body.encode();
-        println!(" === Body encoded: {:?}", body_encoded);
+        // println!(" === Body encoded: {:?}", body_encoded);
         message_len += body_encoded.len() as i32;
         bytes.extend(body_encoded);
 
@@ -568,7 +568,7 @@ pub struct FetchResponsePartition {
     pub log_start_offset: i64,
     pub aborted_transactions: CompactArray<FetchResponseAbortedTransactions>,
     pub preferred_read_replica: i32,
-    pub records: CompactArray<Record>,
+    pub records: CompactArray<RecordBatch>,
     pub tagged_fields: TaggedFields
 }
 
